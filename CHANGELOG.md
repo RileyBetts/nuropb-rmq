@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- PKCS#12 (`.p12`/`.pfx`) TLS material via `pkcs12_file` / `pkcs12_data` (+ optional password);
+  optional `[pkcs12]` extra (`cryptography`); normalizes to PEM `TlsMaterial`
+
 ## 0.1.0 — 2026-08-11
 
 First tagged library surface (Apache-2.0).

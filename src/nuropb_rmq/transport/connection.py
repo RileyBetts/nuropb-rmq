@@ -67,6 +67,10 @@ class ConnectionConfig:
     key_data: bytes | str | None = None
     # Re-invoked on each connect() for rotation; fills slots then file/bytes fallback.
     tls_secrets: TlsSecrets | None = None
+    # PKCS#12 (.p12/.pfx) → PEM slots via optional cryptography ([pkcs12] extra).
+    pkcs12_file: str | None = None
+    pkcs12_data: bytes | None = None
+    pkcs12_password: bytes | str | None = None
     server_hostname: str | None = None
     custom_sans: list[str] = field(default_factory=list)
 
@@ -87,6 +91,8 @@ class ConnectionConfig:
             f"{_pem('ca_data', self.ca_data)}, {_pem('cert_data', self.cert_data)}, "
             f"{_pem('key_data', self.key_data)}, "
             f"tls_secrets={'set' if self.tls_secrets is not None else None}, "
+            f"pkcs12_file={self.pkcs12_file!r}, {_pem('pkcs12_data', self.pkcs12_data)}, "
+            f"pkcs12_password=<redacted>, "
             f"server_hostname={self.server_hostname!r}, custom_sans={self.custom_sans!r})"
         )
 

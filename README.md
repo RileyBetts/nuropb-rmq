@@ -140,11 +140,16 @@ CA / client cert / key can come from any of:
 |--------|--------|
 | File paths | `ca_file`, `cert_file`, `key_file` |
 | In-memory PEM | `ca_data`, `cert_data`, `key_data` (`bytes` or `str`) |
+| PKCS#12 | `pkcs12_file` or `pkcs12_data` (+ optional `pkcs12_password`); requires `pip install 'nuropb-rmq[pkcs12]'` |
 | Secrets hook | `tls_secrets` — async `SecretsProvider.get_tls_material()` or sync/async callable returning `TlsMaterial` |
 
 One source per slot (file **or** bytes; hook conflicts if the same slot is also set).
-The hook is re-invoked on every new `connect()` (rotation via reconnect). PEM only;
-PKCS#12 is deferred. `repr` never includes private key PEM or the password.
+PKCS#12 is mutually exclusive with PEM `cert_*` / `key_*` (and with a secrets hook that
+supplies those slots). If the PKCS#12 bag includes CA certs, do not also set `ca_*`;
+otherwise `ca_file` / `ca_data` / secrets CA may fill the CA slot. The hook is re-invoked
+on every new `connect()` (rotation via reconnect). All sources normalize to PEM
+`TlsMaterial` before SSLContext construction. `repr` never includes private key PEM or
+the PKCS#12 / AMQP password.
 
 ```python
 from nuropb_rmq.transport.connection import ConnectionConfig

@@ -281,10 +281,141 @@ def test_connection_config_repr_redacts_secrets(tmp_path: Path) -> None:
         key_data=key.read_bytes(),
         cert_data=cert.read_bytes(),
         ca_data=ca.read_bytes(),
+        pkcs12_password="p12-secret",
     )
     text = repr(cfg)
     assert "super-secret" not in text
+    assert "p12-secret" not in text
     assert "BEGIN PRIVATE KEY" not in text
     assert "BEGIN RSA PRIVATE KEY" not in text
     assert "password=<redacted>" in text
+    assert "pkcs12_password=<redacted>" in text
     assert "key_data=<" in text
+
+
+def _require_cryptography() -> None:
+    pytest.importorskip("cryptography")
+
+
+def _make_pkcs12(tmp: Path, *, password: bytes | None, include_ca: bool) -> bytes:
+    _require_cryptography()
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives.serialization import pkcs12
+    from cryptography.x509.oid import NameOID
+    import datetime
+
+    ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test-ca")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ca_cert = (
+        x509.CertificateBuilder()
+        .subject_name(ca_name)
+        .issuer_name(ca_name)
+        .public_key(ca_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(ca_key, hashes.SHA256())
+    )
+    cli_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    cli_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "client")])
+    cli_cert = (
+        x509.CertificateBuilder()
+        .subject_name(cli_name)
+        .issuer_name(ca_name)
+        .public_key(cli_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .sign(ca_key, hashes.SHA256())
+    )
+    encryption = (
+        serialization.BestAvailableEncryption(password)
+        if password is not None
+        else serialization.NoEncryption()
+    )
+    return pkcs12.serialize_key_and_certificates(
+        name=b"client",
+        key=cli_key,
+        cert=cli_cert,
+        cas=[ca_cert] if include_ca else None,
+        encryption_algorithm=encryption,
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_from_pkcs12_file(tmp_path: Path) -> None:
+    p12 = _make_pkcs12(tmp_path, password=b"secret", include_ca=True)
+    path = tmp_path / "client.p12"
+    path.write_bytes(p12)
+    material = await resolve_tls_material(
+        ConnectionConfig(pkcs12_file=str(path), pkcs12_password="secret")
+    )
+    assert material.has_client_cert
+    assert material.cert_pem and b"BEGIN CERTIFICATE" in material.cert_pem
+    assert material.key_pem and b"BEGIN PRIVATE KEY" in material.key_pem
+    assert material.ca_pem and b"BEGIN CERTIFICATE" in material.ca_pem
+
+
+@pytest.mark.asyncio
+async def test_resolve_from_pkcs12_data_without_ca_uses_ca_file(tmp_path: Path) -> None:
+    ca, _cert, _key = _openssl_certs(tmp_path)
+    p12 = _make_pkcs12(tmp_path, password=None, include_ca=False)
+    material = await resolve_tls_material(
+        ConnectionConfig(pkcs12_data=p12, ca_file=str(ca))
+    )
+    assert material.has_client_cert
+    assert material.ca_pem == ca.read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_pkcs12_conflicts_with_pem_cert(tmp_path: Path) -> None:
+    _ca, cert, _key = _openssl_certs(tmp_path)
+    p12 = _make_pkcs12(tmp_path, password=None, include_ca=False)
+    with pytest.raises(ValueError, match="pkcs12: conflicts with PEM cert"):
+        await resolve_tls_material(
+            ConnectionConfig(pkcs12_data=p12, cert_file=str(cert))
+        )
+
+
+@pytest.mark.asyncio
+async def test_pkcs12_file_and_data_conflict(tmp_path: Path) -> None:
+    p12 = _make_pkcs12(tmp_path, password=None, include_ca=False)
+    path = tmp_path / "client.p12"
+    path.write_bytes(p12)
+    with pytest.raises(ValueError, match="pkcs12: provide file path or in-memory data"):
+        await resolve_tls_material(ConnectionConfig(pkcs12_file=str(path), pkcs12_data=p12))
+
+
+@pytest.mark.asyncio
+async def test_pkcs12_ca_bag_conflicts_with_ca_file(tmp_path: Path) -> None:
+    ca, _cert, _key = _openssl_certs(tmp_path)
+    p12 = _make_pkcs12(tmp_path, password=None, include_ca=True)
+    with pytest.raises(ValueError, match="pkcs12: bag already includes CA"):
+        await resolve_tls_material(ConnectionConfig(pkcs12_data=p12, ca_file=str(ca)))
+
+
+@pytest.mark.asyncio
+async def test_pkcs12_conflicts_with_secrets_cert(tmp_path: Path) -> None:
+    _ca, cert, key = _openssl_certs(tmp_path)
+    p12 = _make_pkcs12(tmp_path, password=None, include_ca=False)
+
+    async def provider() -> TlsMaterial:
+        return TlsMaterial(cert_pem=cert.read_bytes(), key_pem=key.read_bytes())
+
+    with pytest.raises(ValueError, match="pkcs12: secrets hook already provided"):
+        await resolve_tls_material(ConnectionConfig(pkcs12_data=p12, tls_secrets=provider))
+
+
+@pytest.mark.asyncio
+async def test_select_sasl_external_from_pkcs12(tmp_path: Path) -> None:
+    p12 = _make_pkcs12(tmp_path, password=b"x", include_ca=True)
+    cfg = ConnectionConfig(tls=True, pkcs12_data=p12, pkcs12_password=b"x")
+    conn = AmqpConnection(cfg)
+    conn._tls_material = await resolve_tls_material(cfg)
+    mech, response = conn._select_sasl("PLAIN EXTERNAL")
+    assert mech == "EXTERNAL"
+    assert response == b""
