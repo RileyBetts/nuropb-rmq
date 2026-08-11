@@ -71,6 +71,8 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Release CI | **Done** — GitHub Actions: SpeC++ CheckSat, unit + claims pytest, RabbitMQ integration, Lean `lake build`; Apache-2.0 |
 | Pattern Lean (mesh + claims) | **Done** — `NuropbRmq.Pattern.{Mesh,Claims,Invariants}`; SpeC++ Pattern CheckSat already passed |
 | Large-payload RPC 16KB·c1 | **Done** — fair stub-reply bench + coalesced publish/ack drains + fewer receive copies; near parity vs pika (`bench/results/20260811T144045Z.json`) |
+| TLS / brew AMQPS verify-full | **Done** — `scripts/gen_amqps_certs.sh`, SSL-context unit tests, opt-in `tests/integration/test_amqps_smoke.py` (PLAIN over TLS, `tls-verify-full`) |
+| mTLS / SASL EXTERNAL smoke | **Done** — client cert in cert script; opt-in `test_amqps_mtls_smoke.py`; SASL selection unit tests; never assume mTLS ⇒ passwordless |
 
 ### Deferred (explicit)
 
@@ -78,7 +80,6 @@ Single status view. Detail and rationale live in the sections linked by name.
 |---|---|
 | In-flight RPC park-and-retry across reconnect | v1 fail-fast only; avoids multi-path outcomes |
 | App-level mesh registration authority | Out of v1; broker permissions are the hard gate |
-| TLS integration against local brew AMQPS | PLAIN smoke verified; TLS code path + SM invariant covered in unit tests; broker AMQPS needs deployed trust anchors for full verify-full smoke |
 
 ## Layering overview
 
@@ -635,8 +636,9 @@ tests/
    disconnect; `Session.reconnect` / `ReconnectCoordinator`; `MeshService.rebind`;
    SpeC++ Phase 2 CheckSat; Lean `DeadLetterTimeout` + `Reconnect` proofs.
 
-**v1 core sequencing complete.** Release CI and Pattern Lean are in place. Remaining
-deferred items: in-flight park-and-retry, app-level mesh registry, full AMQPS smoke.
+**v1 core sequencing complete.** Release CI, Pattern Lean, AMQPS verify-full, and
+mTLS EXTERNAL harnesses are in place. Remaining deferred items: in-flight
+park-and-retry, app-level mesh registry.
 
 **Throughput:** `bench/` compares nuropb-rmq vs pika for raw publish/consume,
 RPC exclusive reply queue, pika `amq.rabbitmq.reply-to`, and fanout events.

@@ -1,0 +1,16 @@
+# Example RabbitMQ config fragment for local AMQPS smoke (PLAIN over TLS).
+# Merge into your brew rabbitmq.conf, then restart the broker.
+#
+# Generate certs first:
+#   ./scripts/gen_amqps_certs.sh
+#
+# Adjust absolute paths to your checkout of nuropb-rmq.
+
+listeners.tcp.1 = 127.0.0.1:5673
+listeners.ssl.1 = 127.0.0.1:5671
+
+ssl_options.cacertfile = /ABS/PATH/TO/nuropb-rmq/dev/amqps/ca.pem
+ssl_options.certfile   = /ABS/PATH/TO/nuropb-rmq/dev/amqps/server.pem
+ssl_options.keyfile    = /ABS/PATH/TO/nuropb-rmq/dev/amqps/server.key
+ssl_options.verify     = verify_none
+ssl_options.fail_if_no_peer_cert = false

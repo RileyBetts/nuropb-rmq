@@ -14,6 +14,7 @@ SpeC++ CheckSat lives in [`specs/specpp/`](specs/specpp/); Lean proofs live in
 - SpeC++ Protocol / Session / Pattern / Phase 2 CheckSat
 - Throughput harness vs pika under [`bench/`](bench/) (optional `[bench]` extra)
 - CI: SpeC++ + unit + claims + RabbitMQ integration + Lean (`lake build`)
+- AMQPS: `tls-verify-full` smoke + mTLS/`EXTERNAL` opt-in harness
 
 ## Quick start
 
@@ -52,6 +53,58 @@ Integration smoke (needs RabbitMQ; tries `5672` then `5673`, or set
 
 ```bash
 pytest -q -m integration
+```
+
+## AMQPS (tls-verify-full)
+
+Local PLAIN-over-TLS smoke against a broker SSL listener on **5671**:
+
+```bash
+./scripts/gen_amqps_certs.sh
+# Point RabbitMQ at dev/amqps/{ca,server}.pem + server.key
+# (see scripts/rabbitmq-amqps.conf.example), then restart the broker.
+
+export NUROPB_RMQ_TLS=1
+export NUROPB_RMQ_HOST=127.0.0.1
+export NUROPB_RMQ_PORT=5671
+export NUROPB_RMQ_CA_FILE="$PWD/dev/amqps/ca.pem"
+export NUROPB_RMQ_SERVER_HOSTNAME=localhost
+pytest -q tests/integration/test_amqps_smoke.py
+```
+
+Client uses profile **`tls-verify-full`** (chain + hostname). Broker
+`ssl_options.verify = verify_none` only means the broker does not require a
+client certificate. Private keys under `dev/amqps/` are gitignored.
+
+### mTLS + SASL EXTERNAL
+
+Same cert script also emits `client.pem` / `client.key` (CN `nuropb-client`).
+Point the broker at [`scripts/rabbitmq-amqps-mtls.conf.example`](scripts/rabbitmq-amqps-mtls.conf.example)
+(`verify_peer`, `fail_if_no_peer_cert`, `EXTERNAL`), then:
+
+```bash
+rabbitmq-plugins enable rabbitmq_auth_mechanism_ssl
+rabbitmqctl add_user nuropb-client unused-password || true
+rabbitmqctl set_permissions -p / nuropb-client ".*" ".*" ".*"
+# restart broker with mTLS conf
+
+export NUROPB_RMQ_MTLS=1
+export NUROPB_RMQ_HOST=127.0.0.1
+export NUROPB_RMQ_PORT=5671
+export NUROPB_RMQ_CA_FILE="$PWD/dev/amqps/ca.pem"
+export NUROPB_RMQ_CERT_FILE="$PWD/dev/amqps/client.pem"
+export NUROPB_RMQ_KEY_FILE="$PWD/dev/amqps/client.key"
+export NUROPB_RMQ_SERVER_HOSTNAME=localhost
+pytest -q tests/integration/test_amqps_mtls_smoke.py
+```
+
+The client prefers `EXTERNAL` only when the broker advertises it **and** a
+client cert is configured — never assumes mTLS ⇒ passwordless.
+
+SSL profile + SASL selection are covered without a broker:
+
+```bash
+pytest -q tests/transport/test_tls_context.py
 ```
 
 ## Reconnect (v1 fail-fast)
