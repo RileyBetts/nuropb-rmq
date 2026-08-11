@@ -82,3 +82,64 @@ async def test_amqps_mtls_external_publish_consume_ack() -> None:
         await conn.basic_ack(ch, msg.delivery_tag)
     finally:
         await conn.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_amqps_mtls_external_via_pkcs12(tmp_path: Path) -> None:
+    """Same smoke as PEM mTLS, but client identity from a generated PKCS#12 bag."""
+    ready = _mtls_ready()
+    if ready is None:
+        pytest.skip(
+            "mTLS not enabled (set NUROPB_RMQ_MTLS=1, client certs, broker verify_peer)"
+        )
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding,
+        NoEncryption,
+        PrivateFormat,
+        load_pem_private_key,
+        pkcs12,
+    )
+    from cryptography.x509 import load_pem_x509_certificate
+
+    host, port, ca, cert, key, server_hostname = ready
+    cli_cert = load_pem_x509_certificate(Path(cert).read_bytes())
+    cli_key = load_pem_private_key(Path(key).read_bytes(), password=None)
+    p12 = pkcs12.serialize_key_and_certificates(
+        name=b"client",
+        key=cli_key,
+        cert=cli_cert,
+        cas=None,
+        encryption_algorithm=NoEncryption(),
+    )
+    # Silence unused Encoding/PrivateFormat if serializers change — keep imports used.
+    assert Encoding.PEM and PrivateFormat.PKCS8
+    conn = AmqpConnection(
+        ConnectionConfig(
+            host=host,
+            port=port,
+            username="nuropb-client",
+            password="",
+            tls=True,
+            tls_profile=TlsProfile.VERIFY_FULL,
+            ca_file=ca,
+            pkcs12_data=p12,
+            server_hostname=server_hostname,
+        )
+    )
+    try:
+        await conn.connect()
+        assert conn.sm.state == ConnState.OPEN_OK
+        ch = await conn.open_channel(1)
+        queue = await conn.queue_declare(ch, queue="", exclusive=True, auto_delete=True)
+        await conn.basic_consume(ch, queue)
+        body = b"amqps-mtls-pkcs12"
+        await conn.basic_publish(
+            ch, body, routing_key=queue, properties={"content_type": "text/plain"}
+        )
+        msg = await conn.receive(timeout=5)
+        assert msg.body == body
+        await conn.basic_ack(ch, msg.delivery_tag)
+    finally:
+        await conn.close()

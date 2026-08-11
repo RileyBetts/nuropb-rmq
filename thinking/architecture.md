@@ -42,13 +42,12 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Reply-queue publish auth | Broker-native RabbitMQ permission profile; docs + ops checklist in `scripts/reply-publish-restricted.md` |
 | Claims location | AMQP headers only; JSON-RPC body stays spec-pure |
 | Claims trust model | Signed JWT bearer in headers; verify signature; require `exp`; bind to request via `method` + `jti` tied to correlation id; fail-closed |
-| Mesh-binding authorization | Broker-native vhost/topic permission profile; no app-level registration authority in v1 |
-| Timeouts | Broker TTL + DLX + `consumer_timeout` authoritative; client-side timeout mutually exclusive fallback |
+| Mesh-binding authorization | Broker-native vhost/topic permission profile; optional app-level registry is **discovery only** (never replaces broker ACL) || Timeouts | Broker TTL + DLX + `consumer_timeout` authoritative; client-side timeout mutually exclusive fallback |
 | Duplicates | At-least-once; first reply wins; later messages for resolved id discarded |
 | Error codes | Nuropb taxonomy in `-33000..-33999`; shared `-32000..-32099` used sparingly |
 | `error.data` | Allowlisted structured fields only; no stack traces, hostnames, queue names, or raw `x-death` |
 | mTLS / SASL | Negotiate from broker ads; support `EXTERNAL` when offered; never assume mTLS ⇒ passwordless |
-| Cert sourcing | **Done (PEM)** — files + in-memory bytes + secrets-manager hook → `TlsMaterial`; PKCS#12 deferred |
+| Cert sourcing | **Done** — files + in-memory PEM + PKCS#12 (`[pkcs12]` extra) + secrets-manager hook → `TlsMaterial` |
 | Cert rotation | Re-invoke secrets hook on **new connection only**; mid-connection cert expiry → orderly reconnect with fresh material |
 | Config strategy | **Done** — validated named queue profiles; durable+persistent enforced together |
 | Default queue profile | **Done** — `durable-at-least-once`: quorum + persistent + TTL + DLX + `x-delivery-limit` |
@@ -73,20 +72,19 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Large-payload RPC 16KB·c1 | **Done** — fair stub-reply bench + coalesced publish/ack drains + fewer receive copies; near parity vs pika (`bench/results/20260811T144045Z.json`) |
 | TLS / brew AMQPS verify-full | **Done** — `scripts/gen_amqps_certs.sh`, SSL-context unit tests, opt-in `tests/integration/test_amqps_smoke.py` (PLAIN over TLS, `tls-verify-full`) |
 | mTLS / SASL EXTERNAL smoke | **Done** — client cert in cert script; opt-in `test_amqps_mtls_smoke.py`; SASL selection unit tests; never assume mTLS ⇒ passwordless |
-| Cert sourcing (PEM) | **Done** — `tls_material.py`: file / bytes / `tls_secrets` hook; re-resolve each `connect()`; EXTERNAL from any cert source; key redaction in `repr` |
+| Cert sourcing (PEM + PKCS#12) | **Done** — `tls_material.py`: file / bytes / PKCS#12 / `tls_secrets` hook; re-resolve each `connect()`; EXTERNAL from any cert source; key/password redaction in `repr` |
 | Queue profiles | **Done** — `config/queue_profile.py`; RpcServer/Mesh default `durable-at-least-once`; SpeC++ Config CheckSat |
 | Config QueueProfile Lean | **Done** — `NuropbRmq.Config.{QueueProfile,Invariants}`; durable↔`delivery_mode` (2026-08-11) |
 | Heartbeat watchdog | **Done** — client heartbeat send + missed-peer (2× interval) → `CONNECTION_LOST` |
 | Reply-publish docs | **Done** — `scripts/reply-publish-restricted.md` + README |
 | Frame fuzz CI | **Done** — `tests/transport/test_frame_fuzz.py` + `pytest -m fuzz` in CI |
+| App-level mesh registry (discovery) | **Done** — fanout `nr.mesh.registry`; `MeshService(announce=True)` / `MeshRegistryViewer`; never consulted for bind |
 
 ### Deferred (explicit)
 
 | Item | Why deferred |
 |---|---|
 | In-flight RPC park-and-retry across reconnect | v1 fail-fast only; avoids multi-path outcomes |
-| App-level mesh registration authority | Out of v1; broker permissions are the hard gate |
-| PKCS#12 cert/key loading | PEM-only this pass; add when an integrator needs it |
 
 ## Layering overview
 
@@ -144,10 +142,11 @@ Responsibility: raw bytes on the wire.
 - No protocol semantics here — just "send frame," "receive frame"
 
 **mTLS specifics:**
-- Client certificate + private key loading (**PEM**; PKCS#12 deferred), sourced
-  from any of: file paths, in-memory bytes, or a pluggable secrets-manager hook
-  (with rotation support) — see "Cert/key material sourcing" below for the
-  full decision. Loading is configurable independently of the CA bundle
+- Client certificate + private key loading (**PEM and PKCS#12**), sourced
+  from any of: file paths, in-memory bytes/PEM, PKCS#12 (`.p12`/`.pfx`), or a
+  pluggable secrets-manager hook (with rotation support) — see "Cert/key
+  material sourcing" below for the full decision. Loading is configurable
+  independently of the CA bundle
   used to verify the broker's certificate, which can be sourced the same
   flexible way.
 - Certificate/key passed through to the connection config alongside the AMQP
@@ -328,7 +327,7 @@ Threat: an unauthorized process binds to an existing `service.method` routing ke
 |---|---|
 | RabbitMQ / deployment | Hard gate: vhost users may only `bind`/`consume` on routing keys (or topic patterns) for service namespaces they own; write to other services' request exchanges is denied |
 | Library | Documents the **mesh-binding permission profile**; declares queues/bindings only for the configured service identity; refuses to bind outside the configured namespace (client-side guardrail, not a substitute for broker ACL) |
-| App-level registration authority | **Out of v1** (Deferred in Decision ledger). May be added later as an optional discovery aid, never as a replacement for broker permissions |
+| App-level registration authority | **Done as discovery aid only** — optional announce/viewer on `nr.mesh.registry`; never a replacement for broker permissions or `assert_bind_allowed` |
 
 **SpeC++/Lean invariant (Pattern, client-side):** mesh bind operations are only issued for routing keys within the connection's configured service namespace; unauthorized bind is a broker rejection (external) and/or a client-side refuse-before-send.
 
@@ -644,9 +643,9 @@ tests/
    SpeC++ Phase 2 CheckSat; Lean `DeadLetterTimeout` + `Reconnect` proofs.
 
 **v1 core sequencing complete.** Release CI, Pattern Lean, AMQPS verify-full,
-mTLS EXTERNAL, PEM cert sourcing, named queue profiles, and heartbeat watchdog
-are in place. Remaining deferred items: in-flight park-and-retry, app-level
-mesh registry, PKCS#12.
+mTLS EXTERNAL, PEM + PKCS#12 cert sourcing, named queue profiles, heartbeat
+watchdog, and optional mesh discovery registry are in place. Remaining deferred
+item: in-flight park-and-retry.
 
 **Throughput:** `bench/` compares nuropb-rmq vs pika for raw publish/consume,
 RPC exclusive reply queue, pika `amq.rabbitmq.reply-to`, and fanout events.
@@ -806,18 +805,20 @@ Cross-check the Decision ledger at the top of this document for status.
   level reply authentication in v1. Detail under "Reply forgery."
 - **Mesh-binding authorization — decided.** Broker-native namespaced
   permissions (`mesh-bind-namespaced`); library refuses binds outside
-  configured service namespace; no app-level registration authority in v1.
-  Detail under "Mesh registration authorization."
-- **Cert/key material sourcing — done (PEM).** All three sources are supported,
-  not chosen between: file paths, in-memory bytes, and a secrets-manager
-  hook (`src/nuropb_rmq/transport/tls_material.py`). Concretely:
+  configured service namespace. Optional discovery registry
+  (`patterns/registry.py`) never gates bind. Detail under "Mesh registration
+  authorization."
+- **Cert/key material sourcing — done (PEM + PKCS#12).** All sources normalize
+  to `TlsMaterial` PEM slots (`src/nuropb_rmq/transport/tls_material.py`):
   - **File paths** — PEM cert and key files on disk, the common case
     for local dev and simple container deployments (e.g. mounted secrets).
-    PKCS#12 path loading is deferred.
   - **In-memory bytes** — cert/key supplied directly as bytes/`str`, for
     callers who've already loaded material some other way (e.g. from an
     environment-injected value, or already fetched from elsewhere) and don't
     want a round-trip through the filesystem.
+  - **PKCS#12** — `pkcs12_file` / `pkcs12_data` (+ optional password); soft-imports
+    `cryptography` via optional `[pkcs12]` extra; mutually exclusive with PEM
+    cert/key slots.
   - **Secrets-manager hook** — a pluggable provider interface (e.g. an
     async callable returning `TlsMaterial`, or an object with
     `get_tls_material()`) so integrators can back it with Vault, AWS/GCP/Azure

@@ -3,18 +3,29 @@
 Permission profile (deployment prerequisite): ``mesh-bind-namespaced`` —
 the broker user may only bind/consume under the service identity's
 ``<service>.*`` routing-key namespace. The library refuses out-of-namespace
-binds client-side; broker ACL remains the hard gate. No app-level
-registration authority in v1.
+binds client-side; broker ACL remains the hard gate.
+
+Optional ``announce=True`` publishes a discovery advertisement on
+``nr.mesh.registry`` after bind. The registry is never consulted for bind
+authorization.
 """
 
 from __future__ import annotations
 
 import re
+import time
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from nuropb_rmq.config.queue_profile import QueueProfile, durable_at_least_once
 from nuropb_rmq.patterns.errors import BIND_REFUSED, RpcError, make_error_data
+from nuropb_rmq.patterns.registry import (
+    DEFAULT_ADVERTISE_TTL_S,
+    DEFAULT_REGISTRY_EXCHANGE,
+    ServiceAdvertisement,
+    announce_on_connection,
+)
 from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig
 
 _SAFE_SERVICE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
@@ -74,6 +85,10 @@ class MeshService:
         queue: str | None = None,
         channel_id: int = 1,
         queue_profile: QueueProfile | None = None,
+        announce: bool = False,
+        registry_exchange: str = DEFAULT_REGISTRY_EXCHANGE,
+        announce_ttl_s: float = DEFAULT_ADVERTISE_TTL_S,
+        instance_id: str | None = None,
     ) -> None:
         if not methods:
             raise ValueError("methods must be non-empty")
@@ -86,16 +101,24 @@ class MeshService:
         self.queue_profile = queue_profile or durable_at_least_once(
             dead_letter_exchange=f"nr.dlx.{identity.service}",
         )
+        self.announce = announce
+        self.registry_exchange = registry_exchange
+        self.announce_ttl_s = announce_ttl_s
+        self.instance_id = instance_id or uuid.uuid4().hex
         self.routing_keys: list[str] = []
         for method in methods:
             key = identity.routing_key(method)
             identity.assert_in_namespace(key)
             self.routing_keys.append(key)
+        self.methods: tuple[str, ...] = tuple(methods)
         self.queue: str | None = None
         self._started = False
 
     def assert_bind_allowed(self, routing_key: str) -> str:
-        """Client-side guardrail before issuing queue.bind (SpeC++ / fail-closed)."""
+        """Client-side guardrail before issuing queue.bind (SpeC++ / fail-closed).
+
+        Never consults the mesh registry — broker ACL + namespace only.
+        """
         try:
             return self.identity.assert_in_namespace(routing_key)
         except NamespaceError as exc:
@@ -129,8 +152,28 @@ class MeshService:
                 self.exchange,
                 routing_key=key,
             )
+        if self.announce:
+            await self._announce()
         self._started = True
         return self.queue
+
+    async def _announce(self) -> None:
+        assert self.queue is not None
+        advert = ServiceAdvertisement(
+            service=self.identity.service,
+            methods=self.methods,
+            instance_id=self.instance_id,
+            queue=self.queue,
+            exchange=self.exchange,
+            published_at=time.time(),
+            ttl_s=self.announce_ttl_s,
+        )
+        await announce_on_connection(
+            self.conn,
+            channel_id=self.channel_id,
+            advert=advert,
+            registry_exchange=self.registry_exchange,
+        )
 
     async def close(self) -> None:
         self._started = False
@@ -140,7 +183,7 @@ class MeshService:
         """Close old connection and redeclare namespace binds on a fresh connection.
 
         Callers must restart RpcServer.from_mesh after rebind (v1 fail-fast;
-        no transparent consumer resume).
+        no transparent consumer resume). Re-announces when ``announce`` is set.
         """
         try:
             await self.close()

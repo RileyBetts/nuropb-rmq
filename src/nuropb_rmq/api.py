@@ -17,6 +17,12 @@ from nuropb_rmq.patterns.dlq_timeout import DlqTimeoutProcessor
 from nuropb_rmq.patterns.errors import RpcError
 from nuropb_rmq.patterns.events import EventPublisher, EventSubscriber
 from nuropb_rmq.patterns.mesh import DEFAULT_MESH_EXCHANGE, MeshService, ServiceIdentity
+from nuropb_rmq.patterns.registry import (
+    DEFAULT_REGISTRY_EXCHANGE,
+    MeshRegistryPublisher,
+    MeshRegistryViewer,
+    ServiceAdvertisement,
+)
 from nuropb_rmq.patterns.rpc import RpcClient, RpcServer
 from nuropb_rmq.session.reconnect import ReconnectCoordinator
 from nuropb_rmq.session.session import Session
@@ -28,18 +34,22 @@ __all__ = [
     "AuthConfig",
     "ConnectionConfig",
     "DEFAULT_MESH_EXCHANGE",
+    "DEFAULT_REGISTRY_EXCHANGE",
     "DLQ_TERMINAL",
     "DURABLE_AT_LEAST_ONCE",
     "DURABLE_CLASSIC",
     "DlqTimeoutProcessor",
     "EventPublisher",
     "EventSubscriber",
+    "MeshRegistryPublisher",
+    "MeshRegistryViewer",
     "MeshService",
     "QueueProfile",
     "ReconnectCoordinator",
     "RpcClient",
     "RpcError",
     "RpcServer",
+    "ServiceAdvertisement",
     "ServiceIdentity",
     "Session",
     "TRANSIENT_FAST_PATH",
