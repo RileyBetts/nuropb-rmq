@@ -95,10 +95,18 @@ Smoke all three (with [uv](https://docs.astral.sh/uv/) after `uv sync --dev`):
 
 ## Documentation
 
-- Design: [`thinking/architecture.md`](thinking/architecture.md)
-- Lean ↔ Python map: [`specs/lean/CORRESPONDENCE.md`](specs/lean/CORRESPONDENCE.md)
-- Reply-queue ops profile: [`scripts/reply-publish-restricted.md`](scripts/reply-publish-restricted.md)
-- Release notes: [`CHANGELOG.md`](CHANGELOG.md)
+User guides (config, AMQPS, mesh, claims): **[`docs/`](docs/README.md)**
+
+- [Architecture overview](docs/concepts/architecture-overview.md) — diagrams
+- [Service mesh](docs/concepts/service-mesh.md) — what “mesh” means here
+- [JWT claims](docs/concepts/jwt-claims.md)
+- [Cloud and enterprise AMQPS](docs/guides/cloud-and-enterprise-amqps.md)
+- [TLS profiles and material](docs/concepts/tls-profiles-and-material.md)
+- [Broker permissions](docs/guides/broker-permissions.md)
+
+Design notes for contributors: [`thinking/architecture.md`](thinking/architecture.md).
+Lean ↔ Python map: [`specs/lean/CORRESPONDENCE.md`](specs/lean/CORRESPONDENCE.md).
+Release notes: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Formal verification
 
@@ -111,82 +119,22 @@ Correctness work is part of the project, not an afterthought:
 
 Contributor commands to run these gates are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## TLS and security
+## TLS, mesh, reconnect (summary)
 
-- Profiles: **`tls-verify-full`** (chain + hostname). Never assume mTLS ⇒
-  passwordless; `EXTERNAL` is used only when the broker advertises it **and** a
-  client cert is configured.
-- Local AMQPS / mTLS harnesses: [`scripts/gen_amqps_certs.sh`](scripts/gen_amqps_certs.sh),
-  [`scripts/rabbitmq-amqps.conf.example`](scripts/rabbitmq-amqps.conf.example),
-  [`scripts/rabbitmq-amqps-mtls.conf.example`](scripts/rabbitmq-amqps-mtls.conf.example),
-  and opt-in tests under `tests/integration/test_amqps_*.py`.
-
-### TLS material sources
-
-| Source | Config |
-|--------|--------|
-| File paths | `ca_file`, `cert_file`, `key_file` |
-| In-memory PEM | `ca_data`, `cert_data`, `key_data` |
-| PKCS#12 | `pkcs12_file` / `pkcs12_data` (+ optional password); `[pkcs12]` extra |
-| Secrets hook | `tls_secrets` → `TlsMaterial` (re-run on each `connect()`) |
-
-All sources normalize to PEM `TlsMaterial` before SSLContext construction.
-`repr` never includes private key material or passwords.
-
-```python
-from nuropb_rmq import ConnectionConfig, TlsMaterial
-
-async def load_from_vault() -> TlsMaterial:
-    return TlsMaterial(ca_pem=..., cert_pem=..., key_pem=...)
-
-cfg = ConnectionConfig(tls=True, tls_secrets=load_from_vault, server_hostname="localhost")
-```
-
-## Reconnect
-
-On disconnect, outstanding RPCs fail with `CONNECTION_LOST`. Reconnect opens a
-new connection epoch and exclusive reply queue; mesh consumers must be rebound
-and restarted by the caller (no silent in-flight park-and-retry).
-
-```python
-from nuropb_rmq import ReconnectCoordinator, RpcServer
-
-await ReconnectCoordinator().reconnect(session)
-await mesh.rebind()
-server = RpcServer.from_mesh(mesh, handler=handler)
-await server.start()
-```
-
-## Mesh and claims
-
-- Broker profile **`mesh-bind-namespaced`**: bind/consume only under `<service>.*`.
-- Broker profile **`reply-publish-restricted`**: only authorized services may
-  publish to `nr.reply.*` — see
-  [`scripts/reply-publish-restricted.md`](scripts/reply-publish-restricted.md).
-- JWT claims: `pip install 'nuropb-rmq[claims]'` (or `uv sync --extra claims`).
-- Discovery aid: `MeshService(..., announce=True)` + `MeshRegistryViewer` on
-  `nr.mesh.registry` — never replaces broker ACL or `assert_bind_allowed`.
+- Prefer **`tls-verify-full`**; never assume mTLS ⇒ `EXTERNAL`. Full material
+  sources and cloud runbooks: [`docs/guides/cloud-and-enterprise-amqps.md`](docs/guides/cloud-and-enterprise-amqps.md).
+- Mesh is JSON-RPC over RabbitMQ (not a sidecar mesh):
+  [`docs/concepts/service-mesh.md`](docs/concepts/service-mesh.md).
+- Reconnect is fail-fast (`CONNECTION_LOST`); caller rebinds:
+  [`docs/concepts/reconnect.md`](docs/concepts/reconnect.md).
+- Work queues default to `durable-at-least-once`:
+  [`docs/concepts/queue-profiles.md`](docs/concepts/queue-profiles.md).
 
 ```python
 from nuropb_rmq import MeshRegistryViewer, MeshService, ServiceIdentity
 
 mesh = MeshService(cfg, identity=ServiceIdentity("orders"), methods=["ping"], announce=True)
 await mesh.start()
-viewer = MeshRegistryViewer(cfg)
-await viewer.start()
-print(viewer.lookup("orders"))
-```
-
-## Queue profiles
-
-Work queues default to **`durable-at-least-once`** (quorum + persistent + TTL/DLX +
-`x-delivery-limit`). Durable profiles refuse non-persistent publishes. Session
-reply queues stay exclusive/auto-delete.
-
-```python
-from nuropb_rmq import RpcServer, durable_classic
-
-server = RpcServer(cfg, queue="orders", handler=handler, queue_profile=durable_classic())
 ```
 
 ## Throughput vs pika
