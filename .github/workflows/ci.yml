@@ -25,7 +25,11 @@ jobs:
       - name: SpeC++ CheckSat
         run: python specs/specpp/check_sat.py
       - name: Unit tests
-        run: pytest -q -m "not integration and not benchmark"
+        run: pytest -q -m "not integration and not benchmark and not fuzz"
+      - name: Frame decode fuzz
+        env:
+          HYPOTHESIS_PROFILE: ci
+        run: pytest -q -m fuzz
 
   claims:
     name: Claims unit tests

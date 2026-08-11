@@ -14,9 +14,12 @@ SpeC++ CheckSat lives in [`specs/specpp/`](specs/specpp/); Lean proofs live in
 - Lean Phase 1, 1b, Phase 2, and Pattern (mesh + claims) proved
 - SpeC++ Protocol / Session / Pattern / Phase 2 / Config CheckSat
 - Throughput harness vs pika under [`bench/`](bench/) (optional `[bench]` extra)
-- CI: SpeC++ + unit + claims + RabbitMQ integration + Lean (`lake build`)
+- CI: SpeC++ + unit + claims + frame fuzz + RabbitMQ integration + Lean (`lake build`)
 - AMQPS: `tls-verify-full` smoke + mTLS/`EXTERNAL` opt-in harness
 - Public imports: `from nuropb_rmq import Session, RpcClient, ...` (see `api.py`)
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the **0.1.0** release notes and GitHub
+tag checklist (PyPI publish is not automated).
 
 ## Quick start
 
@@ -29,6 +32,9 @@ cd specs/lean && lake build && cd ../..
 pytest -q
 ```
 
+CI and the commands above use **pip**. Optional local `uv run …` is fine;
+`uv.lock` is gitignored and not the supported CI lockfile.
+
 ## CI / gates
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the same gates:
@@ -36,7 +42,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs the same gates:
 ```bash
 ruff check src tests
 python specs/specpp/check_sat.py
-pytest -q -m "not integration and not benchmark"
+pytest -q -m "not integration and not benchmark and not fuzz"
+HYPOTHESIS_PROFILE=ci pytest -q -m fuzz
 pip install -e ".[claims]" && pytest -q tests/patterns/test_context.py
 # with RabbitMQ on 5672:
 pytest -q -m integration

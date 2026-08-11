@@ -52,10 +52,11 @@ exclude = ["tests*", "thinking*", "specs*", "bench.results*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-m 'not benchmark'"
+addopts = "-m 'not benchmark and not fuzz'"
 markers = [
   "integration: requires a running RabbitMQ broker",
   "benchmark: throughput harness smoke (needs RabbitMQ + optional [bench] / pika)",
+  "fuzz: dedicated frame-decode fuzz lane (CI runs separately)",
 ]
 
 [tool.ruff]

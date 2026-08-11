@@ -4,23 +4,33 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.1.0 — 2026-08-11
+
+First tagged library surface (Apache-2.0).
+
 ### Added
 
-- Validated named queue profiles (`durable-at-least-once` default, `durable-classic`,
-  `transient-fast-path`, `dlq-terminal`) with declare/publish enforcement
-- Heartbeat send loop and missed-peer timeout → `CONNECTION_LOST`
-- Public `nuropb_rmq.api` re-exports
-- Ops doc for `reply-publish-restricted` permission profile
-- SpeC++ Config CheckSat + Lean `NuropbRmq.Config` for durable↔delivery_mode
-- Anti-enumeration content tests for allowlisted `error.data` shape
-- Quorum `durable-at-least-once` RPC integration smoke
+- Native AMQP 0-9-1 transport/protocol (no runtime `pika`)
+- Session/RPC (exclusive reply queues), events, mesh bind, JWT claims
+- Fail-fast reconnect (`CONNECTION_LOST`); Lean Phase 1 / 1b / 2 + Pattern proofs
+- SpeC++ CheckSat (Protocol / Session / Pattern / Phase 2 / Config)
+- Throughput harness vs pika (`[bench]` extra)
+- AMQPS `tls-verify-full` + mTLS/`EXTERNAL`; PEM cert sourcing (files / bytes / secrets hook)
+- Named queue profiles (`durable-at-least-once` default) + Config Lean
+- Heartbeat send + missed-peer watchdog
+- Public `nuropb_rmq.api` re-exports; reply-publish-restricted ops doc
+- Anti-enumeration content tests; dedicated frame-decode fuzz CI lane (`pytest -m fuzz`)
 
 ### Changed
 
-- `RpcServer` / `MeshService` declare work queues via queue profiles (quorum by default)
+- `RpcServer` / `MeshService` declare via queue profiles (quorum by default)
 - `EventPublisher` defaults to `transient-fast-path` delivery mode
 
-## 0.1.0
+## Release checklist (`v0.1.0`)
 
-- Initial Apache-2.0 library: native AMQP transport/protocol, Session/RPC,
-  events, mesh, claims, reconnect, Lean/SpeC++ gates, AMQPS/mTLS, PEM TLS material
+Do **not** publish to PyPI until explicitly requested. For a GitHub release:
+
+1. Gates green on `main`: SpeC++, unit (excl. fuzz), fuzz (`HYPOTHESIS_PROFILE=ci`), claims, integration, Lean
+2. `git tag -a v0.1.0 -m "nuropb-rmq 0.1.0"`
+3. `git push origin main --tags` (only when asked to push)
+4. `gh release create v0.1.0 --notes-file CHANGELOG.md` (or paste the 0.1.0 section)

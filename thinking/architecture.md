@@ -78,6 +78,7 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Config QueueProfile Lean | **Done** — `NuropbRmq.Config.{QueueProfile,Invariants}`; durable↔`delivery_mode` (2026-08-11) |
 | Heartbeat watchdog | **Done** — client heartbeat send + missed-peer (2× interval) → `CONNECTION_LOST` |
 | Reply-publish docs | **Done** — `scripts/reply-publish-restricted.md` + README |
+| Frame fuzz CI | **Done** — `tests/transport/test_frame_fuzz.py` + `pytest -m fuzz` in CI |
 
 ### Deferred (explicit)
 
