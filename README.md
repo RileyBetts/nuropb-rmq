@@ -10,7 +10,7 @@ SpeC++ CheckSat lives in [`specs/specpp/`](specs/specpp/); Lean proofs live in
 - Transport + Protocol + Session/RPC + events + mesh + claims
 - Reconnect: fail-fast `CONNECTION_LOST`; `Session.reconnect` / `MeshService.rebind`
   (no in-flight park-and-retry)
-- Lean Phase 1, 1b, and Phase 2 (DeadLetterTimeout + Reconnect) proved
+- Lean Phase 1, 1b, Phase 2, and Pattern (mesh + claims) proved
 - SpeC++ Protocol / Session / Pattern / Phase 2 CheckSat
 - Throughput harness vs pika under [`bench/`](bench/) (optional `[bench]` extra)
 - CI: SpeC++ + unit + claims + RabbitMQ integration + Lean (`lake build`)

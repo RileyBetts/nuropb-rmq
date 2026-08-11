@@ -1,4 +1,5 @@
-# Lean ↔ Python correspondence (Protocol + Session Phase 1b + Phase 2)
+# Lean ↔ Python correspondence (Protocol + Session + Pattern)
+
 
 Manual correspondence map for the Lean↔Python coupling decided in
 `thinking/architecture.md`: SpeC++ → Lean model → property-based tests +
@@ -19,8 +20,12 @@ manual review. No code extraction.
 | `NuropbRmq.Session.DeadLetterTimeout` | Broker TTL/DLX + DLQ timeout synthesizer |
 | `NuropbRmq.Session.Reconnect` | `session/reconnect.py` + `Session.reconnect` |
 | `NuropbRmq.Session.Phase2Invariants` | SpeC++ Phase 2; PBTs under `tests/session/test_reconnect.py` |
+| `NuropbRmq.Pattern.Mesh` | `nuropb_rmq.patterns.mesh` |
+| `NuropbRmq.Pattern.Claims` | `nuropb_rmq.patterns.context` |
+| `NuropbRmq.Pattern.Invariants` | SpeC++ Pattern; PBTs under `tests/patterns/` |
 | `specs/specpp/Session/correlation.smt2` | Session correlation sorts / clauses |
 | `specs/specpp/Session/phase2_reconnect.smt2` | Phase 2 terminal-state / reconnect epoch clauses |
+| `specs/specpp/Pattern/mesh_claims.smt2` | Pattern mesh/claims sorts / clauses |
 
 ## States
 
@@ -101,18 +106,25 @@ manual review. No code extraction.
 | `resolve_first_wins`, `second_resolve_is_late` | `test_first_reply_wins_late_discarded`, `test_pbt_first_wins` |
 | `register_requires_reply_open`, `close_clears_pending` | Session start/close; reply queue exclusive auto-delete |
 
-## Pattern (Mesh + Claims) — SpeC++ / Python (no Lean yet)
+## Pattern (Mesh + Claims) — SpeC++ + Lean + Python
 
-| SpeC++ / concept | Python |
+| Lean / SpeC++ | Python |
 |---|---|
-| `in_namespace` / `BindOk` | `ServiceIdentity.assert_in_namespace` / `MeshService.assert_bind_allowed` |
-| `BindRefused` | `BIND_REFUSED` / `NamespaceError` |
-| `AuthOk` / claims binding | `AuthConfig.verify_request` (`jti`↔corr, `method` claim) |
+| `NuropbRmq.Pattern.Mesh.inNamespace` / `tryBind` | `ServiceIdentity.assert_in_namespace` / `MeshService.assert_bind_allowed` |
+| `BindOk` / `BindRefused` | allow / `BIND_REFUSED` / `NamespaceError` |
+| `NuropbRmq.Pattern.Claims.tryAuth` | `AuthConfig.verify_request` |
+| `AuthPublicSkip` | `AuthConfig.public_methods` → verify returns `None` |
 | `AuthReject` fail-closed | missing/expired/unbound/bad-sig → `CLAIMS_*` / `UNAUTHORIZED` |
-| `AuthPublicSkip` | `AuthConfig.public_methods` |
+| `AuthOk` (`jti`/`method` bind) | `jti`↔corr, `method` claim (constant-time compare in Python) |
 | `specs/specpp/Pattern/mesh_claims.smt2` | PBTs under `tests/patterns/test_mesh.py` + `test_context.py` |
 
-Lean Pattern proofs are deferred (SpeC++ + PBTs cover mesh/claims for v1).
+| Lean theorem(s) | Python / tests |
+|---|---|
+| `tryBind_ok_of_inNamespace`, `tryBind_refused_*`, `tryBind_exact_service` | `test_namespace_refuse`, `test_pbt_routing_key_in_namespace`, `test_pbt_exact_service_key` |
+| `tryAuth_public_skip` | `test_public_method_skips_claims`, `test_pbt_public_skip` |
+| `tryAuth_reject_*`, `tryAuth_ok` | `test_missing_claims_*`, `test_pbt_jti_must_match` |
+
+JWT crypto (`validSig` / `expired`) is axiomatized in Lean; broker ACL remains an external axiom. Python also refuses empty method / `..` segments beyond the SpeC++ prefix core.
 
 ## Session Phase 2 (Reconnect + DeadLetterTimeout)
 

@@ -173,3 +173,23 @@ def test_pbt_jti_must_match(corr: str) -> None:
             correlation_id=corr + "z",
             properties={"headers": {"nr.claims": tok, "nr.claims_typ": "JWT"}},
         )
+
+
+@given(st.text(alphabet="abcdefghijklmnopqrstuvwxyz.", min_size=1, max_size=24))
+@settings(max_examples=20)
+def test_pbt_public_skip(method: str) -> None:
+    """Lean `tryAuth_public_skip`: public methods need no claims."""
+    auth = AuthConfig(
+        jwt_secret=SECRET,
+        algorithms=("HS256",),
+        public_methods=frozenset({method}),
+    )
+    assert (
+        auth.verify_request(
+            method=method,
+            params={},
+            correlation_id="any",
+            properties={},
+        )
+        is None
+    )

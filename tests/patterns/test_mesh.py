@@ -53,3 +53,11 @@ def test_pbt_routing_key_in_namespace(service: str, method: str) -> None:
     assert ident.assert_in_namespace(key) == key
     with pytest.raises(NamespaceError):
         ident.assert_in_namespace(f"x{service}.{method}")
+
+
+@given(st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=16))
+@settings(max_examples=30)
+def test_pbt_exact_service_key(service: str) -> None:
+    """Lean `tryBind_exact_service`: bare service name is in-namespace."""
+    ident = ServiceIdentity(service)
+    assert ident.assert_in_namespace(service) == service
