@@ -16,10 +16,10 @@ Re-audit of SpeC++ / Lean / Python against this document.
 | Session Phase 1b | **Aligned** | Id bounds/charset, collision reject, first-wins. Lean `replyOpen` is enforced at Session/RpcClient (`reply_queue_open`), not inside `CorrelationTable` alone. |
 | Session Phase 2 | **Aligned** | Fail-fast clear pending, epoch bump, DLQ timeout synthesizer; mesh rebind caller-owned. |
 | Pattern mesh/claims | **Aligned** | `inNamespace`/`tryBind` ↔ mesh guards; `tryAuth` ↔ `AuthConfig.verify_request`. Python also refuses empty method / `..` beyond SpeC++ prefix core. |
-| Config SpeC++ | **SpeC++ only** | `specs/specpp/Config/queue_profile*.smt2` — durable↔`delivery_mode` consistency. **No Lean module** (deferred); intentional, not accidental drift. |
+| Config SpeC++ | **Aligned (Lean Done)** | `NuropbRmq.Config.{QueueProfile,Invariants}` mirrors SpeC++ durable↔`delivery_mode`; Python `tests/config/test_queue_profile.py`. |
 | TLS material / SASL EXTERNAL | **Outside Lean** | PEM sources + EXTERNAL selection are transport/config; Protocol Lean stops at TLS-verified before AMQP. |
 
-Residual gaps (accepted): JWT crypto axiomatized in Lean; broker ACL external; queue-profile Lean deferred; heartbeat watchdog not reified as Lean events.
+Residual gaps (accepted): JWT crypto axiomatized in Lean; broker ACL external; heartbeat watchdog not reified as Lean events.
 
 ## Modules
 
@@ -39,10 +39,12 @@ Residual gaps (accepted): JWT crypto axiomatized in Lean; broker ACL external; q
 | `NuropbRmq.Pattern.Mesh` | `nuropb_rmq.patterns.mesh` |
 | `NuropbRmq.Pattern.Claims` | `nuropb_rmq.patterns.context` |
 | `NuropbRmq.Pattern.Invariants` | SpeC++ Pattern; PBTs under `tests/patterns/` |
+| `NuropbRmq.Config.QueueProfile` | `nuropb_rmq.config.queue_profile` |
+| `NuropbRmq.Config.Invariants` | SpeC++ Config; `tests/config/test_queue_profile.py` |
 | `specs/specpp/Session/correlation.smt2` | Session correlation sorts / clauses |
 | `specs/specpp/Session/phase2_reconnect.smt2` | Phase 2 terminal-state / reconnect epoch clauses |
 | `specs/specpp/Pattern/mesh_claims.smt2` | Pattern mesh/claims sorts / clauses |
-| `specs/specpp/Config/queue_profile.smt2` | Python `config/queue_profile.py` (SpeC++ only; Lean deferred) |
+| `specs/specpp/Config/queue_profile.smt2` | Python `config/queue_profile.py` + Lean `NuropbRmq.Config` |
 
 ## States
 
@@ -155,12 +157,14 @@ JWT crypto (`validSig` / `expired`) is axiomatized in Lean; broker ACL remains a
 | `MeshService.rebind` | Fresh connection + namespaced binds; caller restarts `RpcServer` |
 | `specs/specpp/Session/phase2_reconnect.smt2` | `tests/session/test_reconnect.py` + integration |
 
-## Config (SpeC++ only)
+## Config (SpeC++ + Lean)
 
-| SpeC++ | Python | Lean |
-|---|---|---|
-| `Config/queue_profile.smt2` (sat) | `QueueProfile` durable ⇒ `delivery_mode=2` | **Deferred** |
-| `Config/queue_profile_negatives.smt2` (unsat) | publish refuse non-persistent on durable | **Deferred** |
+| SpeC++ / Lean | Python |
+|---|---|
+| `Config/queue_profile.smt2` (sat) | `QueueProfile` durable ⇒ `delivery_mode=2` |
+| `Config/queue_profile_negatives.smt2` (unsat) | publish refuse non-persistent on durable |
+| `NuropbRmq.Config.consistent` / `durable_requires_persistent` | `QueueProfile.__post_init__` / `assert_delivery_mode` |
+| `durableAtLeastOnce_consistent` | `DURABLE_AT_LEAST_ONCE` / `tests/config/test_queue_profile.py` |
 
 ## Build / test
 

@@ -11,7 +11,9 @@ All notable changes to this project are documented in this file.
 - Heartbeat send loop and missed-peer timeout → `CONNECTION_LOST`
 - Public `nuropb_rmq.api` re-exports
 - Ops doc for `reply-publish-restricted` permission profile
-- SpeC++ Config CheckSat for durable↔delivery_mode consistency
+- SpeC++ Config CheckSat + Lean `NuropbRmq.Config` for durable↔delivery_mode
+- Anti-enumeration content tests for allowlisted `error.data` shape
+- Quorum `durable-at-least-once` RPC integration smoke
 
 ### Changed
 

@@ -11,3 +11,5 @@ import NuropbRmq.Session.Phase2Invariants
 import NuropbRmq.Pattern.Mesh
 import NuropbRmq.Pattern.Claims
 import NuropbRmq.Pattern.Invariants
+import NuropbRmq.Config.QueueProfile
+import NuropbRmq.Config.Invariants

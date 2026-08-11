@@ -12,9 +12,10 @@ must be checked* — where a finding represents a genuine design gap, it should
 also appear in the Decision ledger in `architecture.md`.
 
 Gaps from this review have largely been folded into `architecture.md`.
-Remaining soft follow-ups: dedicated frame fuzz corpus in CI, TTL
-anti-enumeration timing tests, and management-API permission audits
-(optional; broker ACL remains authoritative).
+Remaining soft follow-ups: dedicated frame fuzz corpus in CI (Hypothesis PBTs
+already run in the unit job), TTL anti-enumeration *timing* tests
+(content/allowlist covered by `tests/patterns/test_anti_enumeration.py`), and
+management-API permission audits (optional; broker ACL remains authoritative).
 
 ---
 

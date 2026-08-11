@@ -58,7 +58,7 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Session SpeC++ CheckSat | **Passed** — `specs/specpp/Session/correlation.smt2` (sat) + negatives (unsat) |
 | Lean Phase 1b Session correlation | **Done** — `NuropbRmq.Session.{Correlation,Invariants}`; id format, dual-accessor, collision reject, first-reply-wins, reply-queue brackets table |
 | Lean↔Python (v1) | SpeC++ → Lean model → property-based tests + manual correspondence; no code extraction; **re-audited 2026-08-11** (`specs/lean/CORRESPONDENCE.md` Alignment findings) |
-| TTL anti-enumeration | **Goal**: DLQ-synthesized timeout and “no such method” must not be distinguishable by timing/content alone across the public mesh API |
+| TTL anti-enumeration | **Goal** (content half covered): allowlisted `error.data` + `tests/patterns/test_anti_enumeration.py`; timing indistinguishability remains ops/deployment |
 | Claims compare | Constant-time (`hmac.compare_digest` or equivalent) |
 | Sequencing step 1 (Transport+Protocol) | **Done** — native AMQP connect/channel/declare/publish/consume/ack in `src/nuropb_rmq/` (no `pika`) |
 | Sequencing step 2 (Lean Phase 1) | **Done** — Protocol SM invariants 1–7 |
@@ -75,6 +75,7 @@ Single status view. Detail and rationale live in the sections linked by name.
 | mTLS / SASL EXTERNAL smoke | **Done** — client cert in cert script; opt-in `test_amqps_mtls_smoke.py`; SASL selection unit tests; never assume mTLS ⇒ passwordless |
 | Cert sourcing (PEM) | **Done** — `tls_material.py`: file / bytes / `tls_secrets` hook; re-resolve each `connect()`; EXTERNAL from any cert source; key redaction in `repr` |
 | Queue profiles | **Done** — `config/queue_profile.py`; RpcServer/Mesh default `durable-at-least-once`; SpeC++ Config CheckSat |
+| Config QueueProfile Lean | **Done** — `NuropbRmq.Config.{QueueProfile,Invariants}`; durable↔`delivery_mode` (2026-08-11) |
 | Heartbeat watchdog | **Done** — client heartbeat send + missed-peer (2× interval) → `CONNECTION_LOST` |
 | Reply-publish docs | **Done** — `scripts/reply-publish-restricted.md` + README |
 
