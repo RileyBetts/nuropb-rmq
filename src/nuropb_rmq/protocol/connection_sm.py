@@ -25,6 +25,10 @@ class ProtocolError(RuntimeError):
     """Illegal AMQP state transition — connection must tear down."""
 
 
+class ConnectionLost(ProtocolError):
+    """TCP/broker connection is dead; outstanding work must fail-closed."""
+
+
 _TERMINAL = {ConnState.CLOSED, ConnState.ERROR}
 
 

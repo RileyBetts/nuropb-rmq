@@ -5,11 +5,15 @@ from __future__ import annotations
 import asyncio
 import ssl
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from nuropb_rmq.protocol import methods as m
 from nuropb_rmq.protocol.channel_sm import ChannelStateMachine
-from nuropb_rmq.protocol.connection_sm import ConnectionStateMachine, ProtocolError
+from nuropb_rmq.protocol.connection_sm import (
+    ConnectionLost,
+    ConnectionStateMachine,
+    ProtocolError,
+)
 from nuropb_rmq.protocol.methods import (
     Method,
     decode_content_header,
@@ -26,6 +30,9 @@ from nuropb_rmq.transport.frame import (
     decode_frame,
     encode_frame,
 )
+
+# Poison object waking blocked receive() after connection loss.
+_LOSS_SENTINEL = object()
 
 
 class TlsProfile:
@@ -74,10 +81,20 @@ class AmqpConnection:
         self._buffer = bytearray()
         self._channels: dict[int, ChannelStateMachine] = {}
         self._waiters: dict[tuple[int, int, int], asyncio.Future[Method]] = {}
-        self._deliveries: asyncio.Queue[IncomingMessage] = asyncio.Queue()
+        self._deliveries: asyncio.Queue[IncomingMessage | object] = asyncio.Queue()
         self._reader_task: asyncio.Task[None] | None = None
         self._closed = False
+        self._lost_exc: BaseException | None = None
+        self._on_loss: Callable[[BaseException], None] | None = None
         self.frame_max = self.config.frame_max
+
+    def set_on_loss(self, callback: Callable[[BaseException], None] | None) -> None:
+        """Register callback invoked once when the connection is lost."""
+        self._on_loss = callback
+
+    @property
+    def is_lost(self) -> bool:
+        return self._lost_exc is not None
 
     async def connect(self) -> None:
         ssl_ctx = self._build_ssl_context() if self.config.tls else None
@@ -323,9 +340,50 @@ class AmqpConnection:
         )
 
     async def receive(self, timeout: float | None = 5.0) -> IncomingMessage:
+        if self._lost_exc is not None:
+            raise self._lost_exc
         if timeout is None:
-            return await self._deliveries.get()
-        return await asyncio.wait_for(self._deliveries.get(), timeout=timeout)
+            item = await self._deliveries.get()
+        else:
+            item = await asyncio.wait_for(self._deliveries.get(), timeout=timeout)
+        if item is _LOSS_SENTINEL:
+            raise self._lost_exc or ConnectionLost("connection lost")
+        assert isinstance(item, IncomingMessage)
+        return item
+
+    async def force_drop(self) -> None:
+        """Abruptly drop the TCP connection (tests / simulated network loss)."""
+        self._closed = True
+        if self._writer is not None:
+            self._writer.close()
+            try:
+                await self._writer.wait_closed()
+            except Exception:
+                pass
+        if self._reader_task and not self._reader_task.done():
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
+        self._notify_loss(ConnectionLost("connection dropped"))
+
+    def _notify_loss(self, exc: BaseException) -> None:
+        if self._lost_exc is not None:
+            return
+        if not isinstance(exc, ConnectionLost):
+            exc = ConnectionLost(str(exc))
+        self._lost_exc = exc
+        self._fail_waiters()
+        try:
+            self._deliveries.put_nowait(_LOSS_SENTINEL)
+        except Exception:
+            pass
+        if self._on_loss is not None:
+            try:
+                self._on_loss(exc)
+            except Exception:
+                pass
 
     async def close(self) -> None:
         if self._closed:
@@ -454,15 +512,16 @@ class AmqpConnection:
                             self._finish_delivery(frame.channel, pending_content)
         except asyncio.CancelledError:
             raise
-        except ProtocolError:
-            self._fail_waiters()
+        except ProtocolError as exc:
+            self._notify_loss(exc)
             raise
         except Exception as exc:
             try:
                 self.sm.reject(str(exc))
-            except ProtocolError:
-                pass
-            self._fail_waiters()
+            except ProtocolError as pe:
+                self._notify_loss(pe)
+            else:
+                self._notify_loss(ConnectionLost(str(exc)))
 
     def _finish_delivery(self, channel: int, pending: dict[int, dict[str, Any]]) -> None:
         slot = pending.pop(channel)
@@ -479,6 +538,7 @@ class AmqpConnection:
         self._deliveries.put_nowait(msg)
 
     def _fail_waiters(self) -> None:
+        err = self._lost_exc or ProtocolError("connection failed")
         for fut in list(self._waiters.values()):
             if not fut.done():
-                fut.set_exception(ProtocolError("connection failed"))
+                fut.set_exception(err)

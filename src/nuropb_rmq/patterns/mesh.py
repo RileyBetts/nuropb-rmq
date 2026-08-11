@@ -75,7 +75,8 @@ class MeshService:
     ) -> None:
         if not methods:
             raise ValueError("methods must be non-empty")
-        self.conn = AmqpConnection(config)
+        self.config = config or ConnectionConfig()
+        self.conn = AmqpConnection(self.config)
         self.identity = identity
         self.exchange = exchange
         self.channel_id = channel_id
@@ -130,6 +131,20 @@ class MeshService:
     async def close(self) -> None:
         self._started = False
         await self.conn.close()
+
+    async def rebind(self) -> str:
+        """Close old connection and redeclare namespace binds on a fresh connection.
+
+        Callers must restart RpcServer.from_mesh after rebind (v1 fail-fast;
+        no transparent consumer resume).
+        """
+        try:
+            await self.close()
+        except Exception:
+            pass
+        self.conn = AmqpConnection(self.config)
+        self.queue = None
+        return await self.start()
 
     @property
     def started(self) -> bool:

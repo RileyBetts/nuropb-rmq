@@ -20,6 +20,8 @@ CHECKS: list[tuple[str, str, str]] = [
     ("Protocol", "connection_channel_sm_negatives.smt2", "unsat"),
     ("Session", "correlation.smt2", "sat"),
     ("Session", "correlation_negatives.smt2", "unsat"),
+    ("Session", "phase2_reconnect.smt2", "sat"),
+    ("Session", "phase2_reconnect_negatives.smt2", "unsat"),
     ("Pattern", "mesh_claims.smt2", "sat"),
     ("Pattern", "mesh_claims_negatives.smt2", "unsat"),
 ]

@@ -65,14 +65,15 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Sequencing step 3 (Session+RPC) | **Done** — exclusive reply queue, correlation table, JSON-RPC client/server, DLQ timeout path |
 | Sequencing step 4 (Lean Phase 1b) | **Done** — Session correlation proofs |
 | Sequencing step 5 (Events/pub-sub) | **Done** — JSON-RPC notifications over topic/fanout (`patterns/events.py`) |
-| Sequencing step 6 (Mesh + claims) | **Done** — namespaced mesh bind + JWT `nr.claims` on RPC; SpeC++ Pattern CheckSat; next is Phase 2 reconnect |
+| Sequencing step 6 (Mesh + claims) | **Done** — namespaced mesh bind + JWT `nr.claims` on RPC; SpeC++ Pattern CheckSat |
+| Sequencing step 7 (Reconnect + Lean Phase 2) | **Done** — fail-fast `CONNECTION_LOST`, Session/Mesh rebind, SpeC++ Phase 2, Lean DeadLetterTimeout + Reconnect |
 | Throughput benchmark harness | **Done** — `bench/` compares nuropb-rmq vs pika (optional `[bench]` extra); exclusive reply-queue vs `amq.rabbitmq.reply-to` measured, default unchanged |
 
 ### Deferred (explicit)
 
 | Item | Why deferred |
 |---|---|
-| Phase 2 reconnect/ordering Lean proofs | After reconnect implementation exists to model |
+| In-flight RPC park-and-retry across reconnect | v1 fail-fast only; avoids multi-path outcomes |
 | App-level mesh registration authority | Out of v1; broker permissions are the hard gate |
 | TLS integration against local brew AMQPS | PLAIN smoke verified; TLS code path + SM invariant covered in unit tests; broker AMQPS needs deployed trust anchors for full verify-full smoke |
 | Large-payload single-stream RPC throughput | Bench noted 16KB·c1 RPC outlier vs pika; not a sequencing blocker |
@@ -420,7 +421,7 @@ logic layer:
   for any well-formed reply frame accepted from the reply consumer; the
   permission profile is an external axiom, not a client-proved property.
 
-**New Lean-proof-relevant invariants (Phase 2 scope):**
+**Lean Phase 2 invariants (proved — SpeC++ + Lean DeadLetterTimeout/Reconnect):**
 - Every request that enters the request queue eventually reaches exactly one
   of two terminal states: acked-with-response-sent by some service instance,
   or dead-lettered-and-timeout-synthesized — bounded by TTL, so no request
@@ -628,8 +629,12 @@ tests/
    `ServiceIdentity` namespaced binds; JWT claims in `nr.claims` headers via
    optional `[claims]` extra; wired into `RpcClient`/`RpcServer`; SpeC++ Pattern
    CheckSat.
-7. **Lean Phase 2 / reconnect** *(next)*: reconnect/rebind implementation then
-   ordering/delivery Lean proofs.
+7. **Lean Phase 2 / reconnect** — **DONE.** Fail-fast `CONNECTION_LOST` on
+   disconnect; `Session.reconnect` / `ReconnectCoordinator`; `MeshService.rebind`;
+   SpeC++ Phase 2 CheckSat; Lean `DeadLetterTimeout` + `Reconnect` proofs.
+
+**v1 core sequencing complete.** Remaining deferred items: in-flight park-and-retry,
+app-level mesh registry, full AMQPS smoke, 16KB RPC outlier tuning.
 
 **Throughput:** `bench/` compares nuropb-rmq vs pika for raw publish/consume,
 RPC exclusive reply queue, pika `amq.rabbitmq.reply-to`, and fanout events.
@@ -701,8 +706,8 @@ Cross-check the Decision ledger at the top of this document for status.
     benchmarking" below) so the trade-off's size is known, not just its
     direction.
   - **Still connection-scoped.** Exclusive/auto-delete queues die with the
-    connection regardless of which option was chosen, so this decision does
-    not resolve reconnect handling — that remains Phase 2 Lean-proof scope.
+    connection regardless of which option was chosen; reconnect recreates the
+    reply queue on a new connection epoch (Phase 2 — **done**).
   - **Session layer consequence:** the reply queue is declared once at
     connect and torn down only at disconnect — never toggled per-request —
     so its lifetime cleanly brackets the correlation table's lifetime,

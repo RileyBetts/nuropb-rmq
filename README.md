@@ -6,15 +6,11 @@ live in [`thinking/`](thinking/). SpeC++ CheckSat lives in
 
 ## Status
 
-- Transport + Protocol: connect, channel, declare, publish/consume/ack
-- Session + JSON-RPC RPC (exclusive reply queue, DLQ timeout path)
-- Events/pub-sub: JSON-RPC notifications over topic/fanout
-- Mesh: namespaced `service.method` bind (`MeshService`); broker profile
-  `mesh-bind-namespaced` (documented; ACL is deployment-owned)
-- Claims: JWT in AMQP headers `nr.claims` / `nr.claims_typ` (optional `[claims]`)
-- Lean Phase 1 + Phase 1b proved; SpeC++ Protocol/Session/Pattern CheckSat
+- Transport + Protocol + Session/RPC + events + mesh + claims
+- Reconnect: fail-fast `CONNECTION_LOST`; `Session.reconnect` / `MeshService.rebind`
+- Lean Phase 1, 1b, and Phase 2 (DeadLetterTimeout + Reconnect) proved
+- SpeC++ Protocol / Session / Pattern / Phase 2 CheckSat
 - Throughput harness vs pika under [`bench/`](bench/) (optional `[bench]` extra)
-- Reconnect / Lean Phase 2 not implemented yet
 
 ## Quick start
 
@@ -41,39 +37,29 @@ Integration smoke (needs RabbitMQ; tries `5672` then `5673`, or set
 pytest -q -m integration
 ```
 
-Covers raw AMQP, RPC + DLQ timeout, events, mesh RPC, and claims fail-closed.
+## Reconnect (v1 fail-fast)
 
-Formal gates:
+On disconnect, outstanding RPCs fail with `CONNECTION_LOST`. Reconnect opens a
+new connection epoch and exclusive reply queue; mesh consumers must be rebound
+and restarted by the caller (no silent in-flight retry).
 
-```bash
-python specs/specpp/check_sat.py   # SpeC++ Protocol + Session + Pattern
-(cd specs/lean && lake build)      # Lean Phase 1 + Phase 1b proofs
+```python
+from nuropb_rmq.session import Session, ReconnectCoordinator
+
+await ReconnectCoordinator().reconnect(session)
+await mesh.rebind()
+server = RpcServer.from_mesh(mesh, handler=handler)
+await server.start()
 ```
 
 ## Mesh + claims
 
-Broker permission profile **`mesh-bind-namespaced`**: the AMQP user may only
-bind/consume under the service’s `<service>.*` routing keys. The library
-refuses out-of-namespace binds client-side; it does not replace broker ACL.
-
-```python
-from nuropb_rmq.patterns import MeshService, ServiceIdentity, RpcServer, AuthConfig
-
-mesh = MeshService(identity=ServiceIdentity("orders"), methods=["ping"])
-await mesh.start()
-server = RpcServer.from_mesh(mesh, handler=handler, auth=AuthConfig(jwt_secret=...))
-```
-
-JWT verification needs `pip install -e ".[claims]"` (PyJWT + cryptography).
-Tokens travel only in AMQP headers — never in the JSON-RPC body.
+Broker permission profile **`mesh-bind-namespaced`**: bind/consume only under
+`<service>.*`. JWT claims use optional `pip install -e ".[claims]"`.
 
 ## Throughput vs pika
-
-`pika` is **only** for development/test performance comparisons — never a
-runtime dependency of `nuropb_rmq`.
 
 ```bash
 pip install -e ".[bench]"
 python -m bench.compare --quick
-pytest -q -m benchmark
 ```

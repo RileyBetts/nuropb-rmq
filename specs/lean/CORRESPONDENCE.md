@@ -1,4 +1,4 @@
-# Lean ↔ Python correspondence (Protocol Phase 1 + Session Phase 1b)
+# Lean ↔ Python correspondence (Protocol + Session Phase 1b + Phase 2)
 
 Manual correspondence map for the Lean↔Python coupling decided in
 `thinking/architecture.md`: SpeC++ → Lean model → property-based tests +
@@ -16,7 +16,11 @@ manual review. No code extraction.
 | `specs/specpp/Protocol/connection_channel_sm.smt2` | Same sort universe as Lean `ConnState` / `ChanState` / `TlsState` |
 | `NuropbRmq.Session.Correlation` | `nuropb_rmq.session.{ids,correlation,session}` |
 | `NuropbRmq.Session.Invariants` | SpeC++ Session Phase 1b; PBTs under `tests/session/` |
+| `NuropbRmq.Session.DeadLetterTimeout` | Broker TTL/DLX + DLQ timeout synthesizer |
+| `NuropbRmq.Session.Reconnect` | `session/reconnect.py` + `Session.reconnect` |
+| `NuropbRmq.Session.Phase2Invariants` | SpeC++ Phase 2; PBTs under `tests/session/test_reconnect.py` |
 | `specs/specpp/Session/correlation.smt2` | Session correlation sorts / clauses |
+| `specs/specpp/Session/phase2_reconnect.smt2` | Phase 2 terminal-state / reconnect epoch clauses |
 
 ## States
 
@@ -108,7 +112,18 @@ manual review. No code extraction.
 | `AuthPublicSkip` | `AuthConfig.public_methods` |
 | `specs/specpp/Pattern/mesh_claims.smt2` | PBTs under `tests/patterns/test_mesh.py` + `test_context.py` |
 
-Lean Pattern proofs are deferred; Phase 2 Lean remains reconnect/ordering.
+Lean Pattern proofs are deferred (SpeC++ + PBTs cover mesh/claims for v1).
+
+## Session Phase 2 (Reconnect + DeadLetterTimeout)
+
+| Lean / SpeC++ | Python |
+|---|---|
+| `exclusiveFate` / TTL vs ack | Broker TTL/DLX authoritative; DLQ timeout synthesizer |
+| `terminalOf` acked / dlqTimeout / connectionLost | RPC result, DLQ `REQUEST_TIMEOUT`, `CONNECTION_LOST` |
+| `onDisconnect` clears pending | `Session._on_connection_lost` / `correlation.discard_all` |
+| `onReconnect` bumps epoch | `Session.reconnect` / `ReconnectCoordinator` |
+| `MeshService.rebind` | Fresh connection + namespaced binds; caller restarts `RpcServer` |
+| `specs/specpp/Session/phase2_reconnect.smt2` | `tests/session/test_reconnect.py` + integration |
 
 ## Build / test
 

@@ -5,3 +5,6 @@ import NuropbRmq.Protocol.FrameDecode
 import NuropbRmq.Protocol.Invariants
 import NuropbRmq.Session.Correlation
 import NuropbRmq.Session.Invariants
+import NuropbRmq.Session.DeadLetterTimeout
+import NuropbRmq.Session.Reconnect
+import NuropbRmq.Session.Phase2Invariants
