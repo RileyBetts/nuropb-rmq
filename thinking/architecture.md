@@ -42,8 +42,7 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Reply-queue publish auth | Broker-native RabbitMQ permission profile; docs + ops checklist in `scripts/reply-publish-restricted.md` |
 | Claims location | AMQP headers only; JSON-RPC body stays spec-pure |
 | Claims trust model | Signed JWT bearer in headers; verify signature; require `exp`; bind to request via `method` + `jti` tied to correlation id; fail-closed |
-| Mesh-binding authorization | Broker-native vhost/topic permission profile; app-level registry is discovery-only (never replaces broker ACL) |
-| Timeouts | Broker TTL + DLX + `consumer_timeout` authoritative; client-side timeout mutually exclusive fallback |
+| Mesh-binding authorization | Broker-native vhost/topic permission profile; optional app-level registry is **discovery only** (never replaces broker ACL) || Timeouts | Broker TTL + DLX + `consumer_timeout` authoritative; client-side timeout mutually exclusive fallback |
 | Duplicates | At-least-once; first reply wins; later messages for resolved id discarded |
 | Error codes | Nuropb taxonomy in `-33000..-33999`; shared `-32000..-32099` used sparingly |
 | `error.data` | Allowlisted structured fields only; no stack traces, hostnames, queue names, or raw `x-death` |
@@ -79,13 +78,13 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Heartbeat watchdog | **Done** — client heartbeat send + missed-peer (2× interval) → `CONNECTION_LOST` |
 | Reply-publish docs | **Done** — `scripts/reply-publish-restricted.md` + README |
 | Frame fuzz CI | **Done** — `tests/transport/test_frame_fuzz.py` + `pytest -m fuzz` in CI |
+| App-level mesh registry (discovery) | **Done** — fanout `nr.mesh.registry`; `MeshService(announce=True)` / `MeshRegistryViewer`; never consulted for bind |
 
 ### Deferred (explicit)
 
 | Item | Why deferred |
 |---|---|
 | In-flight RPC park-and-retry across reconnect | v1 fail-fast only; avoids multi-path outcomes |
-| App-level mesh registration authority | Out of v1 as a **security** gate; optional discovery aid may land separately (broker permissions remain the hard gate) |
 
 ## Layering overview
 
@@ -328,7 +327,7 @@ Threat: an unauthorized process binds to an existing `service.method` routing ke
 |---|---|
 | RabbitMQ / deployment | Hard gate: vhost users may only `bind`/`consume` on routing keys (or topic patterns) for service namespaces they own; write to other services' request exchanges is denied |
 | Library | Documents the **mesh-binding permission profile**; declares queues/bindings only for the configured service identity; refuses to bind outside the configured namespace (client-side guardrail, not a substitute for broker ACL) |
-| App-level registration authority | **Out of v1** (Deferred in Decision ledger). May be added later as an optional discovery aid, never as a replacement for broker permissions |
+| App-level registration authority | **Done as discovery aid only** — optional announce/viewer on `nr.mesh.registry`; never a replacement for broker permissions or `assert_bind_allowed` |
 
 **SpeC++/Lean invariant (Pattern, client-side):** mesh bind operations are only issued for routing keys within the connection's configured service namespace; unauthorized bind is a broker rejection (external) and/or a client-side refuse-before-send.
 
@@ -644,9 +643,9 @@ tests/
    SpeC++ Phase 2 CheckSat; Lean `DeadLetterTimeout` + `Reconnect` proofs.
 
 **v1 core sequencing complete.** Release CI, Pattern Lean, AMQPS verify-full,
-mTLS EXTERNAL, PEM + PKCS#12 cert sourcing, named queue profiles, and heartbeat
-watchdog are in place. Remaining deferred items: in-flight park-and-retry;
-app-level mesh registry (as security authority — discovery aid may ship separately).
+mTLS EXTERNAL, PEM + PKCS#12 cert sourcing, named queue profiles, heartbeat
+watchdog, and optional mesh discovery registry are in place. Remaining deferred
+item: in-flight park-and-retry.
 
 **Throughput:** `bench/` compares nuropb-rmq vs pika for raw publish/consume,
 RPC exclusive reply queue, pika `amq.rabbitmq.reply-to`, and fanout events.
@@ -806,8 +805,9 @@ Cross-check the Decision ledger at the top of this document for status.
   level reply authentication in v1. Detail under "Reply forgery."
 - **Mesh-binding authorization — decided.** Broker-native namespaced
   permissions (`mesh-bind-namespaced`); library refuses binds outside
-  configured service namespace; no app-level registration authority in v1.
-  Detail under "Mesh registration authorization."
+  configured service namespace. Optional discovery registry
+  (`patterns/registry.py`) never gates bind. Detail under "Mesh registration
+  authorization."
 - **Cert/key material sourcing — done (PEM + PKCS#12).** All sources normalize
   to `TlsMaterial` PEM slots (`src/nuropb_rmq/transport/tls_material.py`):
   - **File paths** — PEM cert and key files on disk, the common case

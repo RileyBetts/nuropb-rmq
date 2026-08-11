@@ -47,4 +47,6 @@ Exact regexes depend on your exchange/queue naming. Prefer topic permissions
 ## Related
 
 - Mesh bind profile: `mesh-bind-namespaced` (client-side namespace guard in `MeshService`)
+- Optional discovery: fanout `nr.mesh.registry` (`MeshService(announce=True)` /
+  `MeshRegistryViewer`) — never replaces broker bind permissions
 - Session reply queues: `Session.start` → `nr.reply.{connection_id}`
