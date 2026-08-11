@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- README restructured for consumers first (pitch, badges, install, usage); maintainer
+  branching/CI gates moved to [`CONTRIBUTING.md`](CONTRIBUTING.md)
+
 ### Added
 
 - PKCS#12 (`.p12`/`.pfx`) TLS material via `pkcs12_file` / `pkcs12_data` (+ optional password);

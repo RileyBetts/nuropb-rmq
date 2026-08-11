@@ -1,201 +1,155 @@
 # nuropb-rmq
 
-Native Python RabbitMQ/AMQP 0-9-1 client (no `pika` at runtime). Licensed under
-[Apache License 2.0](LICENSE). Design docs live in [`thinking/`](thinking/).
-SpeC++ CheckSat lives in [`specs/specpp/`](specs/specpp/); Lean proofs live in
-[`specs/lean/`](specs/lean/).
+[![CI](https://github.com/RileyBetts/nuropb-rmq/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/RileyBetts/nuropb-rmq/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![Status](https://img.shields.io/badge/status-alpha-orange.svg)](CHANGELOG.md)
 
-## Status
+Async-native Python **AMQP 0-9-1** client for RabbitMQ — built on `asyncio`, with
+no `pika` (or other AMQP client) at runtime. It implements connection/channel
+framing directly and layers nuropb-inspired **JSON-RPC 2.0** mesh patterns (RPC,
+events, service bind, claims) on that transport. Protocol and session behaviour
+are backed by SpeC++ CheckSat and Lean proofs, not only tests.
 
-- Transport + Protocol + Session/RPC + events + mesh + claims
-- Reconnect: fail-fast `CONNECTION_LOST`; `Session.reconnect` / `MeshService.rebind`
-  (no in-flight park-and-retry)
-- Optional mesh discovery registry (`MeshService(announce=True)` / `MeshRegistryViewer`)
-  — never a bind/auth authority
-- Named queue profiles (`durable-at-least-once` default) + heartbeat watchdog
-- Lean Phase 1, 1b, Phase 2, and Pattern (mesh + claims) proved
-- SpeC++ Protocol / Session / Pattern / Phase 2 / Config CheckSat
-- Throughput harness vs pika under [`bench/`](bench/) (optional `[bench]` extra)
-- CI: SpeC++ + unit + claims + frame fuzz + RabbitMQ integration + Lean (`lake build`)
-- AMQPS: `tls-verify-full` smoke + mTLS/`EXTERNAL` opt-in harness
-- Public imports: `from nuropb_rmq import Session, RpcClient, ...` (see `api.py`)
+Alpha: the public API may still change. See [`CHANGELOG.md`](CHANGELOG.md).
 
-See [`CHANGELOG.md`](CHANGELOG.md) for the **0.1.0** release notes and GitHub
-tag checklist (PyPI publish is not automated).
+## Features
 
-## Branching
+- Asyncio-first API (`await` connect, publish, consume, RPC)
+- Native AMQP transport: connect, channel, declare, publish, consume, ack
+- Session RPC with exclusive reply queues and correlation tracking
+- Event pub/sub (JSON-RPC notification shape) over topic/fanout
+- Mesh service bind under a namespaced identity (`service.method`)
+- Optional JWT claims on RPC (`[claims]` extra)
+- TLS (`tls-verify-full`), mTLS / SASL `EXTERNAL`, PEM + PKCS#12 + secrets hook
+- Named queue profiles (`durable-at-least-once` default) and heartbeat watchdog
+- Fail-fast reconnect (`CONNECTION_LOST`); caller rebinds mesh consumers
+- Optional mesh discovery registry (announce/viewer — never a bind authority)
+- Throughput harness vs pika (`[bench]` extra)
 
-Long-lived branches: **`development`** (integration) and **`main`** (stable/release).
-Both are protected: changes land via pull request with required CI.
+## Installation
 
-```text
-feature/<name>  →  development  →  main
-```
-
-1. Update and branch from `development`:
+Python 3.11+. Until PyPI publish is wired up, install from GitHub:
 
 ```bash
-git checkout development && git pull
-git checkout -b feature/my-change
+pip install "git+https://github.com/RileyBetts/nuropb-rmq.git"
 ```
 
-2. Open a PR targeting **`development`** (squash merge preferred).
-3. When `development` is ready to release, open a PR **`development` → `main`**
-   (merge commit preferred so the integration boundary is visible).
+| Extra | Purpose |
+|-------|---------|
+| *(none)* | Core client |
+| `claims` | JWT mesh claims (`PyJWT`) |
+| `pkcs12` | PKCS#12 TLS material (`cryptography`) |
+| `bench` | pika comparison harness |
 
-Do not push directly to `main` or `development`.
+```bash
+pip install "nuropb-rmq[claims] @ git+https://github.com/RileyBetts/nuropb-rmq.git"
+```
+
+PyPI publish is not automated; the 0.1.0 GitHub release checklist lives in the
+changelog.
 
 ## Quick start
 
-Requires [uv](https://docs.astral.sh/uv/). Python is pinned via `.python-version` (3.12).
+Needs a local RabbitMQ broker (default `127.0.0.1:5672`, `guest`/`guest`).
 
-```bash
-uv sync --dev
-uv run python specs/specpp/check_sat.py
-cd specs/lean && lake build && cd ../..
-uv run pytest -q
+```python
+import asyncio
+from nuropb_rmq import AmqpConnection, ConnectionConfig
+
+async def main() -> None:
+    conn = AmqpConnection(ConnectionConfig(host="127.0.0.1", port=5672))
+    await conn.connect()
+    ch = await conn.open_channel(1)
+    queue = await conn.queue_declare(ch, "nr.ex.hello", durable=True)
+    await conn.basic_consume(ch, queue)
+    await conn.basic_publish(
+        ch,
+        b"hello-nuropb-rmq",
+        routing_key=queue,
+        properties={"content_type": "text/plain", "delivery_mode": 2},
+    )
+    msg = await conn.receive(timeout=5)
+    print(msg.body)
+    await conn.basic_ack(ch, msg.delivery_tag)
+    await conn.close()
+
+asyncio.run(main())
 ```
 
-Maintainer tooling lives in the PEP 735 `dev` **dependency group** (`uv sync --dev`),
-not a package extra. Product extras for consumers: `claims`, `pkcs12`, `bench`
-(`uv sync --dev --extra claims`, or `pip install 'nuropb-rmq[claims]'`).
-Committed `uv.lock` is the supported lockfile for CI and local sync.
+Prefer copy-paste demos? See **Examples** below. Stable imports:
+`from nuropb_rmq import Session, RpcClient, MeshService, …` ([`api.py`](src/nuropb_rmq/api.py)).
 
 ## Examples
 
-Runnable demos against local RabbitMQ (`uv sync --dev` first):
-
-- [`examples/one_client_one_service/`](examples/one_client_one_service/) — mesh RPC,
-  events, and registry discovery (`service.py`, then `client.py`)
-- [`examples/vanilla_hello/`](examples/vanilla_hello/) — plain `AmqpConnection`
-  publish/consume on a durable queue
+- [`examples/vanilla_hello/`](examples/vanilla_hello/) — durable queue publish/consume
 - [`examples/vanilla_topic/`](examples/vanilla_topic/) — topic exchange pub/sub
-  (subscriber first, then publisher)
+- [`examples/one_client_one_service/`](examples/one_client_one_service/) — mesh RPC,
+  events, and registry discovery
 
-Smoke all three locally: `./scripts/smoke_examples.sh` (probes `5672`/`5673`, or set
-`NUROPB_RMQ_PORT`).
-
-## CI / gates
-
-GitHub Actions (`.github/workflows/ci.yml`) runs the same gates via uv:
+Smoke all three (with [uv](https://docs.astral.sh/uv/) after `uv sync --dev`):
 
 ```bash
-uv sync --dev
-uv lock --check
-uv run ruff check src tests
-uv run python specs/specpp/check_sat.py
-uv run pytest -q -m "not integration and not benchmark and not fuzz"
-HYPOTHESIS_PROFILE=ci uv run pytest -q -m fuzz
-uv sync --dev --extra claims && uv run pytest -q tests/patterns/test_context.py
-# with RabbitMQ on 5672:
-uv run pytest -q -m integration
-(cd specs/lean && lake build)
+./scripts/smoke_examples.sh
 ```
 
-Claims-gated RPC tests:
+## Documentation
 
-```bash
-uv sync --dev --extra claims
-uv run pytest -q tests/patterns/test_context.py tests/integration/test_mesh_claims_amqp.py
-```
+- Design: [`thinking/architecture.md`](thinking/architecture.md)
+- Lean ↔ Python map: [`specs/lean/CORRESPONDENCE.md`](specs/lean/CORRESPONDENCE.md)
+- Reply-queue ops profile: [`scripts/reply-publish-restricted.md`](scripts/reply-publish-restricted.md)
+- Release notes: [`CHANGELOG.md`](CHANGELOG.md)
 
-Integration smoke (needs RabbitMQ; tries `5672` then `5673`, or set
-`NUROPB_RMQ_HOST` / `NUROPB_RMQ_PORT`):
+## Formal verification
 
-```bash
-pytest -q -m integration
-```
+Correctness work is part of the project, not an afterthought:
 
-## AMQPS (tls-verify-full)
+- SpeC++ SMT CheckSat under [`specs/specpp/`](specs/specpp/) (Protocol, Session,
+  Pattern, Phase 2, Config)
+- Lean proofs under [`specs/lean/`](specs/lean/) (Protocol, Session, Pattern,
+  Config, reconnect)
 
-Local PLAIN-over-TLS smoke against a broker SSL listener on **5671**:
+Contributor commands to run these gates are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-```bash
-./scripts/gen_amqps_certs.sh
-# Point RabbitMQ at dev/amqps/{ca,server}.pem + server.key
-# (see scripts/rabbitmq-amqps.conf.example), then restart the broker.
+## TLS and security
 
-export NUROPB_RMQ_TLS=1
-export NUROPB_RMQ_HOST=127.0.0.1
-export NUROPB_RMQ_PORT=5671
-export NUROPB_RMQ_CA_FILE="$PWD/dev/amqps/ca.pem"
-export NUROPB_RMQ_SERVER_HOSTNAME=localhost
-pytest -q tests/integration/test_amqps_smoke.py
-```
-
-Client uses profile **`tls-verify-full`** (chain + hostname). Broker
-`ssl_options.verify = verify_none` only means the broker does not require a
-client certificate. Private keys under `dev/amqps/` are gitignored.
-
-### mTLS + SASL EXTERNAL
-
-Same cert script also emits `client.pem` / `client.key` (CN `nuropb-client`).
-Point the broker at [`scripts/rabbitmq-amqps-mtls.conf.example`](scripts/rabbitmq-amqps-mtls.conf.example)
-(`verify_peer`, `fail_if_no_peer_cert`, `EXTERNAL`), then:
-
-```bash
-rabbitmq-plugins enable rabbitmq_auth_mechanism_ssl
-rabbitmqctl add_user nuropb-client unused-password || true
-rabbitmqctl set_permissions -p / nuropb-client ".*" ".*" ".*"
-# restart broker with mTLS conf
-
-export NUROPB_RMQ_MTLS=1
-export NUROPB_RMQ_HOST=127.0.0.1
-export NUROPB_RMQ_PORT=5671
-export NUROPB_RMQ_CA_FILE="$PWD/dev/amqps/ca.pem"
-export NUROPB_RMQ_CERT_FILE="$PWD/dev/amqps/client.pem"
-export NUROPB_RMQ_KEY_FILE="$PWD/dev/amqps/client.key"
-export NUROPB_RMQ_SERVER_HOSTNAME=localhost
-pytest -q tests/integration/test_amqps_mtls_smoke.py
-```
-
-The client prefers `EXTERNAL` only when the broker advertises it **and** a
-client cert is configured — never assumes mTLS ⇒ passwordless.
+- Profiles: **`tls-verify-full`** (chain + hostname). Never assume mTLS ⇒
+  passwordless; `EXTERNAL` is used only when the broker advertises it **and** a
+  client cert is configured.
+- Local AMQPS / mTLS harnesses: [`scripts/gen_amqps_certs.sh`](scripts/gen_amqps_certs.sh),
+  [`scripts/rabbitmq-amqps.conf.example`](scripts/rabbitmq-amqps.conf.example),
+  [`scripts/rabbitmq-amqps-mtls.conf.example`](scripts/rabbitmq-amqps-mtls.conf.example),
+  and opt-in tests under `tests/integration/test_amqps_*.py`.
 
 ### TLS material sources
-
-CA / client cert / key can come from any of:
 
 | Source | Config |
 |--------|--------|
 | File paths | `ca_file`, `cert_file`, `key_file` |
-| In-memory PEM | `ca_data`, `cert_data`, `key_data` (`bytes` or `str`) |
-| PKCS#12 | `pkcs12_file` or `pkcs12_data` (+ optional `pkcs12_password`); requires `pip install 'nuropb-rmq[pkcs12]'` or `uv sync --extra pkcs12` |
-| Secrets hook | `tls_secrets` — async `SecretsProvider.get_tls_material()` or sync/async callable returning `TlsMaterial` |
+| In-memory PEM | `ca_data`, `cert_data`, `key_data` |
+| PKCS#12 | `pkcs12_file` / `pkcs12_data` (+ optional password); `[pkcs12]` extra |
+| Secrets hook | `tls_secrets` → `TlsMaterial` (re-run on each `connect()`) |
 
-One source per slot (file **or** bytes; hook conflicts if the same slot is also set).
-PKCS#12 is mutually exclusive with PEM `cert_*` / `key_*` (and with a secrets hook that
-supplies those slots). If the PKCS#12 bag includes CA certs, do not also set `ca_*`;
-otherwise `ca_file` / `ca_data` / secrets CA may fill the CA slot. The hook is re-invoked
-on every new `connect()` (rotation via reconnect). All sources normalize to PEM
-`TlsMaterial` before SSLContext construction. `repr` never includes private key PEM or
-the PKCS#12 / AMQP password.
+All sources normalize to PEM `TlsMaterial` before SSLContext construction.
+`repr` never includes private key material or passwords.
 
 ```python
-from nuropb_rmq.transport.connection import ConnectionConfig
-from nuropb_rmq.transport.tls_material import TlsMaterial
+from nuropb_rmq import ConnectionConfig, TlsMaterial
 
 async def load_from_vault() -> TlsMaterial:
-    # integrator-owned: Vault / AWS SM / etc.
     return TlsMaterial(ca_pem=..., cert_pem=..., key_pem=...)
 
 cfg = ConnectionConfig(tls=True, tls_secrets=load_from_vault, server_hostname="localhost")
 ```
 
-SSL profile + material resolve + SASL selection are covered without a broker:
-
-```bash
-pytest -q tests/transport/test_tls_context.py tests/transport/test_tls_material.py
-```
-
-## Reconnect (v1 fail-fast)
+## Reconnect
 
 On disconnect, outstanding RPCs fail with `CONNECTION_LOST`. Reconnect opens a
 new connection epoch and exclusive reply queue; mesh consumers must be rebound
-and restarted by the caller (no silent in-flight retry / park-and-retry).
+and restarted by the caller (no silent in-flight park-and-retry).
 
 ```python
-from nuropb_rmq.session import Session, ReconnectCoordinator
+from nuropb_rmq import ReconnectCoordinator, RpcServer
 
 await ReconnectCoordinator().reconnect(session)
 await mesh.rebind()
@@ -203,20 +157,15 @@ server = RpcServer.from_mesh(mesh, handler=handler)
 await server.start()
 ```
 
-## Mesh + claims
+## Mesh and claims
 
-Broker permission profile **`mesh-bind-namespaced`**: bind/consume only under
-`<service>.*`. JWT claims use optional `uv sync --dev --extra claims`
-(or `pip install -e ".[claims]"` / `pip install 'nuropb-rmq[claims]'`).
-
-Broker permission profile **`reply-publish-restricted`**: only authorized
-service identities may publish to `nr.reply.*` (forges otherwise). Ops
-checklist: [`scripts/reply-publish-restricted.md`](scripts/reply-publish-restricted.md).
-
-Optional **discovery** (not authorization): `MeshService(..., announce=True)`
-publishes a JSON advertisement on fanout `nr.mesh.registry`;
-`MeshRegistryViewer` lists/lookups with TTL. Broker ACL +
-`assert_bind_allowed` remain the only bind gates.
+- Broker profile **`mesh-bind-namespaced`**: bind/consume only under `<service>.*`.
+- Broker profile **`reply-publish-restricted`**: only authorized services may
+  publish to `nr.reply.*` — see
+  [`scripts/reply-publish-restricted.md`](scripts/reply-publish-restricted.md).
+- JWT claims: `pip install 'nuropb-rmq[claims]'` (or `uv sync --extra claims`).
+- Discovery aid: `MeshService(..., announce=True)` + `MeshRegistryViewer` on
+  `nr.mesh.registry` — never replaces broker ACL or `assert_bind_allowed`.
 
 ```python
 from nuropb_rmq import MeshRegistryViewer, MeshService, ServiceIdentity
@@ -230,9 +179,9 @@ print(viewer.lookup("orders"))
 
 ## Queue profiles
 
-Work queues default to **`durable-at-least-once`** (quorum + persistent +
-TTL/DLX + `x-delivery-limit`). Publish refuses non-persistent messages on
-durable profiles. See `nuropb_rmq.config.QueueProfile`.
+Work queues default to **`durable-at-least-once`** (quorum + persistent + TTL/DLX +
+`x-delivery-limit`). Durable profiles refuse non-persistent publishes. Session
+reply queues stay exclusive/auto-delete.
 
 ```python
 from nuropb_rmq import RpcServer, durable_classic
@@ -240,11 +189,19 @@ from nuropb_rmq import RpcServer, durable_classic
 server = RpcServer(cfg, queue="orders", handler=handler, queue_profile=durable_classic())
 ```
 
-Exclusive Session reply queues stay auto-delete/ephemeral (not the work-queue profile).
-
 ## Throughput vs pika
 
 ```bash
 uv sync --dev --extra bench
 uv run python -m bench.compare --quick
 ```
+
+## Contributing
+
+PRs target **`development`**. Use [uv](https://docs.astral.sh/uv/) for the
+maintainer environment (`uv sync --dev`). Branching, CI gates, SpeC++, and Lean
+commands: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## License
+
+[Apache License 2.0](LICENSE)
