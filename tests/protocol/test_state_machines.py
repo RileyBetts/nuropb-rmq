@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from nuropb_rmq.protocol.channel_sm import ChannelStateMachine, ChanState
-from nuropb_rmq.protocol.connection_sm import ConnState, ConnectionStateMachine, ProtocolError
 from nuropb_rmq.protocol import methods as m
+from nuropb_rmq.protocol.channel_sm import ChannelStateMachine, ChanState
+from nuropb_rmq.protocol.connection_sm import ConnectionStateMachine, ConnState, ProtocolError
 
 
 def test_happy_path_plain() -> None:

@@ -10,8 +10,8 @@ registration authority in v1.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from nuropb_rmq.patterns.errors import BIND_REFUSED, RpcError, make_error_data
 from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig

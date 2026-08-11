@@ -5,7 +5,8 @@ from __future__ import annotations
 import time
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 pytest.importorskip("jwt")
 import jwt

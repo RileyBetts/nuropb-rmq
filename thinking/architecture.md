@@ -68,6 +68,7 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Sequencing step 6 (Mesh + claims) | **Done** — namespaced mesh bind + JWT `nr.claims` on RPC; SpeC++ Pattern CheckSat |
 | Sequencing step 7 (Reconnect + Lean Phase 2) | **Done** — fail-fast `CONNECTION_LOST`, Session/Mesh rebind, SpeC++ Phase 2, Lean DeadLetterTimeout + Reconnect |
 | Throughput benchmark harness | **Done** — `bench/` compares nuropb-rmq vs pika (optional `[bench]` extra); exclusive reply-queue vs `amq.rabbitmq.reply-to` measured, default unchanged |
+| Release CI | **Done** — GitHub Actions: SpeC++ CheckSat, unit + claims pytest, RabbitMQ integration, Lean `lake build`; Apache-2.0 |
 
 ### Deferred (explicit)
 
@@ -633,8 +634,9 @@ tests/
    disconnect; `Session.reconnect` / `ReconnectCoordinator`; `MeshService.rebind`;
    SpeC++ Phase 2 CheckSat; Lean `DeadLetterTimeout` + `Reconnect` proofs.
 
-**v1 core sequencing complete.** Remaining deferred items: in-flight park-and-retry,
-app-level mesh registry, full AMQPS smoke, 16KB RPC outlier tuning.
+**v1 core sequencing complete.** Release CI is in place (GitHub Actions). Remaining
+deferred items: in-flight park-and-retry, app-level mesh registry, full AMQPS smoke,
+16KB RPC outlier tuning.
 
 **Throughput:** `bench/` compares nuropb-rmq vs pika for raw publish/consume,
 RPC exclusive reply queue, pika `amq.rabbitmq.reply-to`, and fanout events.

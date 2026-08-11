@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from nuropb_rmq.patterns.errors import CONNECTION_LOST, RpcError
 from nuropb_rmq.session.reconnect import ReconnectPolicy
 from nuropb_rmq.session.session import Session, _connection_lost_error
-from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig
+from nuropb_rmq.transport.connection import ConnectionConfig
 
 
 def test_connection_lost_error_taxonomy() -> None:
@@ -72,9 +74,6 @@ async def test_force_drop_fails_outstanding_rpc() -> None:
     assert session.epoch == 1
     assert session.reply_queue_open
     await session.close()
-
-
-from hypothesis import given, settings, strategies as st
 
 
 @given(st.integers(min_value=0, max_value=20))

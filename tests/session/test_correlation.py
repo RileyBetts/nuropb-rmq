@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from nuropb_rmq.session.correlation import CorrelationTable
 from nuropb_rmq.session.ids import IdCollisionError, InvalidIdError, generate_id, validate_id

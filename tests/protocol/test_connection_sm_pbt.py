@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from nuropb_rmq.protocol.connection_sm import ConnState, ConnectionStateMachine, ProtocolError
 from nuropb_rmq.protocol import methods as m
+from nuropb_rmq.protocol.connection_sm import ConnectionStateMachine, ConnState, ProtocolError
 
 
 def _fresh() -> ConnectionStateMachine:

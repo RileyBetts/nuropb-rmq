@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import ssl
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from nuropb_rmq.protocol import methods as m
 from nuropb_rmq.protocol.channel_sm import ChannelStateMachine
@@ -403,7 +404,7 @@ class AmqpConnection:
                 try:
                     await asyncio.wait_for(self._expect(0, m.CONNECTION, m.CONNECTION_CLOSE_OK), 2)
                     self.sm.on_close_ok()
-                except (TimeoutError, asyncio.TimeoutError, ProtocolError, AmqpCodecError):
+                except (TimeoutError, ProtocolError, AmqpCodecError):
                     self.sm.on_close_ok()
         finally:
             if self._reader_task:

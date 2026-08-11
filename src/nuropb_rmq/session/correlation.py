@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from nuropb_rmq.session.ids import IdCollisionError, InvalidIdError, generate_id, validate_id
+from nuropb_rmq.session.ids import IdCollisionError, generate_id, validate_id
 
 
 class CorrelationTable:

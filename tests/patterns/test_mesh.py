@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from nuropb_rmq.patterns.errors import BIND_REFUSED, RpcError
 from nuropb_rmq.patterns.mesh import MeshService, NamespaceError, ServiceIdentity

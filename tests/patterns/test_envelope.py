@@ -13,7 +13,12 @@ from nuropb_rmq.patterns.envelope import (
     encode_request,
     encode_result,
 )
-from nuropb_rmq.patterns.errors import REQUEST_TIMEOUT, RpcError, allowlist_error_data, make_error_data
+from nuropb_rmq.patterns.errors import (
+    REQUEST_TIMEOUT,
+    RpcError,
+    allowlist_error_data,
+    make_error_data,
+)
 
 
 def test_request_roundtrip() -> None:
