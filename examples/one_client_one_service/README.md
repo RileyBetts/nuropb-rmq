@@ -20,10 +20,10 @@ client.py  <--advertise-- nr.mesh.registry <--  service.py
 - Editable install from the repo root:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+uv sync --dev
 ```
+
+Then run with `uv run python examples/one_client_one_service/…` or activate `.venv`.
 
 Optional env overrides: `NUROPB_RMQ_HOST`, `NUROPB_RMQ_PORT`, `NUROPB_RMQ_USER`,
 `NUROPB_RMQ_PASSWORD`.
@@ -33,7 +33,7 @@ Optional env overrides: `NUROPB_RMQ_HOST`, `NUROPB_RMQ_PORT`, `NUROPB_RMQ_USER`,
 **Terminal 1 — service first:**
 
 ```bash
-python examples/one_client_one_service/service.py
+uv run python examples/one_client_one_service/service.py
 ```
 
 Expected:
@@ -45,7 +45,7 @@ Expected:
 **Terminal 2 — client:**
 
 ```bash
-python examples/one_client_one_service/client.py
+uv run python examples/one_client_one_service/client.py
 ```
 
 Expected (abridged):

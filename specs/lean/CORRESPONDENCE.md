@@ -172,7 +172,7 @@ JWT crypto (`validSig` / `expired`) is axiomatized in Lean; broker ACL remains a
 python specs/specpp/check_sat.py
 cd specs/lean && lake build
 cd ../.. && pytest -q tests/protocol tests/transport tests/session tests/patterns
-# claims unit tests need: pip install -e ".[claims]"
+# claims unit tests need: uv sync --dev --extra claims
 # integration (needs local RabbitMQ):
 pytest -q tests/integration
 ```

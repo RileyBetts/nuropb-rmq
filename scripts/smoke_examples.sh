@@ -6,10 +6,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-if [[ -f .venv/bin/activate ]]; then
+if command -v uv >/dev/null 2>&1; then
+  PY=(uv run python)
+elif [[ -f .venv/bin/activate ]]; then
   # shellcheck source=/dev/null
   source .venv/bin/activate
+  PY=(python)
+else
+  PY=(python)
 fi
+
+run_py() {
+  "${PY[@]}" "$@"
+}
 
 export NUROPB_RMQ_HOST="${NUROPB_RMQ_HOST:-127.0.0.1}"
 
@@ -62,10 +71,10 @@ pass_suite() {
 smoke_hello() {
   local log peer_out
   log="$(mktemp)"
-  python examples/vanilla_hello/consumer.py >"$log" 2>&1 &
+  run_py examples/vanilla_hello/consumer.py >"$log" 2>&1 &
   local pid=$!
   sleep 0.8
-  peer_out="$(python examples/vanilla_hello/publisher.py 2>&1)"
+  peer_out="$(run_py examples/vanilla_hello/publisher.py 2>&1)"
   sleep 0.4
   kill_bg "$pid"
   local cons
@@ -80,10 +89,10 @@ smoke_hello() {
 smoke_topic() {
   local log peer_out
   log="$(mktemp)"
-  python examples/vanilla_topic/subscriber.py >"$log" 2>&1 &
+  run_py examples/vanilla_topic/subscriber.py >"$log" 2>&1 &
   local pid=$!
   sleep 0.8
-  peer_out="$(python examples/vanilla_topic/publisher.py 2>&1)"
+  peer_out="$(run_py examples/vanilla_topic/publisher.py 2>&1)"
   sleep 0.5
   kill_bg "$pid"
   local sub
@@ -102,10 +111,10 @@ smoke_topic() {
 smoke_mesh() {
   local slog clout
   slog="$(mktemp)"
-  python examples/one_client_one_service/service.py >"$slog" 2>&1 &
+  run_py examples/one_client_one_service/service.py >"$slog" 2>&1 &
   local pid=$!
   sleep 1.5
-  clout="$(python examples/one_client_one_service/client.py 2>&1)" || {
+  clout="$(run_py examples/one_client_one_service/client.py 2>&1)" || {
     kill_bg "$pid"
     echo "FAIL one_client_one_service/client exited non-zero" >&2
     echo "$clout" >&2

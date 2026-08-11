@@ -15,6 +15,13 @@ All notable changes to this project are documented in this file.
 - Examples `examples/vanilla_hello/` and `examples/vanilla_topic/` — plain
   `AmqpConnection` publish/consume and topic pub/sub
 - `scripts/smoke_examples.sh` — local smoke runner for all example suites
+- uv as project manager: committed `uv.lock`, `.python-version` (3.12), PEP 735
+  `dev` dependency group; product extras remain `claims` / `pkcs12` / `bench`
+
+### Fixed
+
+- Field-value decode raises `AmqpCodecError` on truncated fixed-width tags
+  (fuzz found `IndexError` on lone `t` / similar short payloads)
 
 ## 0.1.0 — 2026-08-11
 
