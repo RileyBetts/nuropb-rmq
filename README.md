@@ -70,6 +70,9 @@ Runnable demos against local RabbitMQ (`pip install -e .`):
 - [`examples/vanilla_topic/`](examples/vanilla_topic/) — topic exchange pub/sub
   (subscriber first, then publisher)
 
+Smoke all three locally: `./scripts/smoke_examples.sh` (probes `5672`/`5673`, or set
+`NUROPB_RMQ_PORT`).
+
 ## CI / gates
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the same gates:
