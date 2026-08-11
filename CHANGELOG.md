@@ -14,6 +14,7 @@ All notable changes to this project are documented in this file.
   registry discovery)
 - Examples `examples/vanilla_hello/` and `examples/vanilla_topic/` — plain
   `AmqpConnection` publish/consume and topic pub/sub
+- `scripts/smoke_examples.sh` — local smoke runner for all example suites
 
 ## 0.1.0 — 2026-08-11
 
