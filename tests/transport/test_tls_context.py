@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig, TlsProfile
+from nuropb_rmq.transport.tls_material import resolve_tls_material
 
 
 def _openssl_certs(tmp: Path) -> tuple[Path, Path, Path]:
@@ -108,7 +109,14 @@ def _openssl_certs(tmp: Path) -> tuple[Path, Path, Path]:
     return ca_pem, srv_pem, srv_key
 
 
-def test_verify_full_loads_ca(tmp_path: Path) -> None:
+async def _prepare_tls(conn: AmqpConnection) -> ssl.SSLContext:
+    material = await resolve_tls_material(conn.config)
+    conn._tls_material = material
+    return conn._build_ssl_context(material)
+
+
+@pytest.mark.asyncio
+async def test_verify_full_loads_ca(tmp_path: Path) -> None:
     ca, _srv, _key = _openssl_certs(tmp_path)
     conn = AmqpConnection(
         ConnectionConfig(
@@ -117,21 +125,23 @@ def test_verify_full_loads_ca(tmp_path: Path) -> None:
             ca_file=str(ca),
         )
     )
-    ctx = conn._build_ssl_context()
+    ctx = await _prepare_tls(conn)
     assert ctx.verify_mode == ssl.CERT_REQUIRED
     assert ctx.check_hostname is True
 
 
-def test_insecure_dev_only_disables_verify() -> None:
+@pytest.mark.asyncio
+async def test_insecure_dev_only_disables_verify() -> None:
     conn = AmqpConnection(
         ConnectionConfig(tls=True, tls_profile=TlsProfile.INSECURE_DEV_ONLY)
     )
-    ctx = conn._build_ssl_context()
+    ctx = await _prepare_tls(conn)
     assert ctx.verify_mode == ssl.CERT_NONE
     assert ctx.check_hostname is False
 
 
-def test_custom_san_requires_allowlist(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_custom_san_requires_allowlist(tmp_path: Path) -> None:
     ca, _srv, _key = _openssl_certs(tmp_path)
     conn = AmqpConnection(
         ConnectionConfig(
@@ -143,10 +153,11 @@ def test_custom_san_requires_allowlist(tmp_path: Path) -> None:
         )
     )
     with pytest.raises(ValueError, match="custom_sans"):
-        conn._build_ssl_context()
+        await _prepare_tls(conn)
 
 
-def test_custom_san_rejects_hostname_not_allowlisted(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_custom_san_rejects_hostname_not_allowlisted(tmp_path: Path) -> None:
     ca, _srv, _key = _openssl_certs(tmp_path)
     conn = AmqpConnection(
         ConnectionConfig(
@@ -158,10 +169,11 @@ def test_custom_san_rejects_hostname_not_allowlisted(tmp_path: Path) -> None:
         )
     )
     with pytest.raises(ValueError, match="not in custom_sans"):
-        conn._build_ssl_context()
+        await _prepare_tls(conn)
 
 
-def test_custom_san_ok_when_allowlisted(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_custom_san_ok_when_allowlisted(tmp_path: Path) -> None:
     ca, _srv, _key = _openssl_certs(tmp_path)
     conn = AmqpConnection(
         ConnectionConfig(
@@ -172,20 +184,22 @@ def test_custom_san_ok_when_allowlisted(tmp_path: Path) -> None:
             custom_sans=["localhost"],
         )
     )
-    ctx = conn._build_ssl_context()
+    ctx = await _prepare_tls(conn)
     assert ctx.verify_mode == ssl.CERT_REQUIRED
 
 
-def test_unknown_tls_profile_rejected(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_unknown_tls_profile_rejected(tmp_path: Path) -> None:
     ca, _srv, _key = _openssl_certs(tmp_path)
     conn = AmqpConnection(
         ConnectionConfig(tls=True, tls_profile="tls-mystery", ca_file=str(ca))
     )
     with pytest.raises(ValueError, match="unknown tls profile"):
-        conn._build_ssl_context()
+        await _prepare_tls(conn)
 
 
-def test_select_sasl_prefers_external_when_cert_configured(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_select_sasl_prefers_external_when_cert_configured(tmp_path: Path) -> None:
     ca, srv, key = _openssl_certs(tmp_path)
     conn = AmqpConnection(
         ConnectionConfig(
@@ -195,19 +209,40 @@ def test_select_sasl_prefers_external_when_cert_configured(tmp_path: Path) -> No
             key_file=str(key),
         )
     )
+    await _prepare_tls(conn)
     mech, response = conn._select_sasl("PLAIN AMQPLAIN EXTERNAL")
     assert mech == "EXTERNAL"
     assert response == b""
 
 
-def test_select_sasl_plain_without_client_cert() -> None:
+@pytest.mark.asyncio
+async def test_select_sasl_external_from_cert_data(tmp_path: Path) -> None:
+    ca, srv, key = _openssl_certs(tmp_path)
+    conn = AmqpConnection(
+        ConnectionConfig(
+            tls=True,
+            ca_data=ca.read_bytes(),
+            cert_data=srv.read_bytes(),
+            key_data=key.read_bytes(),
+        )
+    )
+    await _prepare_tls(conn)
+    mech, response = conn._select_sasl("PLAIN EXTERNAL")
+    assert mech == "EXTERNAL"
+    assert response == b""
+
+
+@pytest.mark.asyncio
+async def test_select_sasl_plain_without_client_cert() -> None:
     conn = AmqpConnection(ConnectionConfig(tls=True, username="u", password="p"))
+    await _prepare_tls(conn)
     mech, response = conn._select_sasl("PLAIN EXTERNAL")
     assert mech == "PLAIN"
     assert response == b"\x00u\x00p"
 
 
-def test_select_sasl_plain_when_external_not_advertised(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_select_sasl_plain_when_external_not_advertised(tmp_path: Path) -> None:
     ca, srv, key = _openssl_certs(tmp_path)
     conn = AmqpConnection(
         ConnectionConfig(
@@ -219,6 +254,7 @@ def test_select_sasl_plain_when_external_not_advertised(tmp_path: Path) -> None:
             password="p",
         )
     )
+    await _prepare_tls(conn)
     mech, response = conn._select_sasl("PLAIN AMQPLAIN")
     assert mech == "PLAIN"
     assert response == b"\x00u\x00p"
@@ -230,3 +266,39 @@ def test_select_sasl_rejects_when_no_supported_mechanism() -> None:
     conn = AmqpConnection(ConnectionConfig())
     with pytest.raises(ProtocolError, match="no supported SASL"):
         conn._select_sasl("ANONYMOUS")
+
+
+@pytest.mark.asyncio
+async def test_build_ssl_context_from_pem_bytes(tmp_path: Path) -> None:
+    ca, srv, key = _openssl_certs(tmp_path)
+    conn = AmqpConnection(
+        ConnectionConfig(
+            tls=True,
+            ca_data=ca.read_text(encoding="utf-8"),
+            cert_data=srv.read_bytes(),
+            key_data=key.read_bytes(),
+        )
+    )
+    ctx = await _prepare_tls(conn)
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+
+
+@pytest.mark.asyncio
+async def test_ssl_context_rejects_mismatched_key(tmp_path: Path) -> None:
+    ca, srv, _key = _openssl_certs(tmp_path)
+    other = tmp_path / "other.key"
+    subprocess.run(
+        ["openssl", "genrsa", "-out", str(other), "2048"],
+        check=True,
+        capture_output=True,
+    )
+    conn = AmqpConnection(
+        ConnectionConfig(
+            tls=True,
+            ca_file=str(ca),
+            cert_data=srv.read_bytes(),
+            key_data=other.read_bytes(),
+        )
+    )
+    with pytest.raises(ValueError, match="invalid client certificate/key"):
+        await _prepare_tls(conn)

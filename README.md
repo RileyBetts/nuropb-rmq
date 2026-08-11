@@ -101,10 +101,35 @@ pytest -q tests/integration/test_amqps_mtls_smoke.py
 The client prefers `EXTERNAL` only when the broker advertises it **and** a
 client cert is configured — never assumes mTLS ⇒ passwordless.
 
-SSL profile + SASL selection are covered without a broker:
+### TLS material sources
+
+CA / client cert / key can come from any of:
+
+| Source | Config |
+|--------|--------|
+| File paths | `ca_file`, `cert_file`, `key_file` |
+| In-memory PEM | `ca_data`, `cert_data`, `key_data` (`bytes` or `str`) |
+| Secrets hook | `tls_secrets` — async `SecretsProvider.get_tls_material()` or sync/async callable returning `TlsMaterial` |
+
+One source per slot (file **or** bytes; hook conflicts if the same slot is also set).
+The hook is re-invoked on every new `connect()` (rotation via reconnect). PEM only;
+PKCS#12 is deferred. `repr` never includes private key PEM or the password.
+
+```python
+from nuropb_rmq.transport.connection import ConnectionConfig
+from nuropb_rmq.transport.tls_material import TlsMaterial
+
+async def load_from_vault() -> TlsMaterial:
+    # integrator-owned: Vault / AWS SM / etc.
+    return TlsMaterial(ca_pem=..., cert_pem=..., key_pem=...)
+
+cfg = ConnectionConfig(tls=True, tls_secrets=load_from_vault, server_hostname="localhost")
+```
+
+SSL profile + material resolve + SASL selection are covered without a broker:
 
 ```bash
-pytest -q tests/transport/test_tls_context.py
+pytest -q tests/transport/test_tls_context.py tests/transport/test_tls_material.py
 ```
 
 ## Reconnect (v1 fail-fast)

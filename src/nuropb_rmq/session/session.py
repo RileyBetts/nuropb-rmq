@@ -115,6 +115,7 @@ class Session:
 
         Outstanding requests are failed with CONNECTION_LOST (v1 fail-fast).
         MeshService / RpcServer must be rebound/restarted by the caller.
+        New AmqpConnection.connect() re-resolves tls_secrets (cert rotation).
         """
         await self._teardown_for_reconnect()
         self.conn = AmqpConnection(self.config)

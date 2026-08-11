@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import ssl
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -31,6 +33,7 @@ from nuropb_rmq.transport.frame import (
     decode_frame,
     encode_frame,
 )
+from nuropb_rmq.transport.tls_material import TlsMaterial, TlsSecrets, resolve_tls_material
 
 # Poison object waking blocked receive() after connection loss.
 _LOSS_SENTINEL = object()
@@ -56,8 +59,34 @@ class ConnectionConfig:
     ca_file: str | None = None
     cert_file: str | None = None
     key_file: str | None = None
+    # In-memory PEM (bytes or str). Mutually exclusive with the matching *_file per slot.
+    ca_data: bytes | str | None = None
+    cert_data: bytes | str | None = None
+    key_data: bytes | str | None = None
+    # Re-invoked on each connect() for rotation; fills slots then file/bytes fallback.
+    tls_secrets: TlsSecrets | None = None
     server_hostname: str | None = None
     custom_sans: list[str] = field(default_factory=list)
+
+    def __repr__(self) -> str:
+        def _pem(label: str, data: bytes | str | None) -> str:
+            if data is None:
+                return f"{label}=None"
+            n = len(data.encode("utf-8") if isinstance(data, str) else data)
+            return f"{label}=<{n} bytes>"
+
+        return (
+            "ConnectionConfig("
+            f"host={self.host!r}, port={self.port}, virtual_host={self.virtual_host!r}, "
+            f"username={self.username!r}, password=<redacted>, "
+            f"heartbeat={self.heartbeat}, frame_max={self.frame_max}, "
+            f"tls={self.tls}, tls_profile={self.tls_profile!r}, "
+            f"ca_file={self.ca_file!r}, cert_file={self.cert_file!r}, key_file={self.key_file!r}, "
+            f"{_pem('ca_data', self.ca_data)}, {_pem('cert_data', self.cert_data)}, "
+            f"{_pem('key_data', self.key_data)}, "
+            f"tls_secrets={'set' if self.tls_secrets is not None else None}, "
+            f"server_hostname={self.server_hostname!r}, custom_sans={self.custom_sans!r})"
+        )
 
 
 @dataclass
@@ -88,6 +117,8 @@ class AmqpConnection:
         self._lost_exc: BaseException | None = None
         self._on_loss: Callable[[BaseException], None] | None = None
         self.frame_max = self.config.frame_max
+        # Resolved on each connect(); used for SASL EXTERNAL (any cert source).
+        self._tls_material: TlsMaterial | None = None
 
     def set_on_loss(self, callback: Callable[[BaseException], None] | None) -> None:
         """Register callback invoked once when the connection is lost."""
@@ -98,7 +129,12 @@ class AmqpConnection:
         return self._lost_exc is not None
 
     async def connect(self) -> None:
-        ssl_ctx = self._build_ssl_context() if self.config.tls else None
+        # Secrets hook (if any) runs here — once per new TCP/TLS connection (rotation).
+        ssl_ctx = None
+        self._tls_material = None
+        if self.config.tls:
+            self._tls_material = await resolve_tls_material(self.config)
+            ssl_ctx = self._build_ssl_context(self._tls_material)
         server_hostname = self.config.server_hostname or self.config.host
         self.sm.on_tcp_connected(tls=bool(ssl_ctx))
         self._reader, self._writer = await asyncio.open_connection(
@@ -167,16 +203,19 @@ class AmqpConnection:
         await self._expect(0, m.CONNECTION, m.CONNECTION_OPEN_OK)
         self.sm.on_connection_open_ok()
 
-    def _build_ssl_context(self) -> ssl.SSLContext:
+    def _build_ssl_context(self, material: TlsMaterial) -> ssl.SSLContext:
         profile = self.config.tls_profile
         if profile == TlsProfile.INSECURE_DEV_ONLY:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             return ctx
-        ctx = ssl.create_default_context(cafile=self.config.ca_file)
-        if self.config.cert_file:
-            ctx.load_cert_chain(self.config.cert_file, self.config.key_file)
+        if material.ca_pem is not None:
+            ctx = ssl.create_default_context(cadata=material.ca_pem.decode("ascii"))
+        else:
+            ctx = ssl.create_default_context(cafile=None)
+        if material.cert_pem is not None:
+            self._load_cert_chain(ctx, material)
         if profile == TlsProfile.VERIFY_CUSTOM_SAN:
             # Loud named profile: require explicit SAN allowlist; still verify chain.
             if not self.config.custom_sans:
@@ -188,10 +227,40 @@ class AmqpConnection:
             raise ValueError(f"unknown tls profile {profile!r}")
         return ctx
 
+    @staticmethod
+    def _load_cert_chain(ctx: ssl.SSLContext, material: TlsMaterial) -> None:
+        """Load client cert/key from PEM bytes via short-lived 0o600 temp files."""
+        assert material.cert_pem is not None
+        cert_path = key_path = None
+        try:
+            with tempfile.NamedTemporaryFile("wb", delete=False) as cert_f:
+                cert_f.write(material.cert_pem)
+                cert_path = cert_f.name
+            os.chmod(cert_path, 0o600)
+            if material.key_pem is not None:
+                with tempfile.NamedTemporaryFile("wb", delete=False) as key_f:
+                    key_f.write(material.key_pem)
+                    key_path = key_f.name
+                os.chmod(key_path, 0o600)
+            try:
+                ctx.load_cert_chain(cert_path, key_path)
+            except ssl.SSLError as exc:
+                raise ValueError(
+                    "invalid client certificate/key PEM (load_cert_chain failed)"
+                ) from exc
+        finally:
+            for path in (cert_path, key_path):
+                if path is not None:
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+
     def _select_sasl(self, mechanisms: str) -> tuple[str, bytes]:
         offered = {part.strip() for part in mechanisms.split() if part.strip()}
-        # Prefer EXTERNAL when offered and client cert configured; else PLAIN.
-        if "EXTERNAL" in offered and self.config.cert_file:
+        # Prefer EXTERNAL when offered and client cert present from any source.
+        has_client_cert = bool(self._tls_material and self._tls_material.has_client_cert)
+        if "EXTERNAL" in offered and has_client_cert:
             return "EXTERNAL", b""
         if "PLAIN" not in offered:
             self.sm.reject(f"no supported SASL mechanism in {offered!r}")

@@ -48,7 +48,7 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Error codes | Nuropb taxonomy in `-33000..-33999`; shared `-32000..-32099` used sparingly |
 | `error.data` | Allowlisted structured fields only; no stack traces, hostnames, queue names, or raw `x-death` |
 | mTLS / SASL | Negotiate from broker ads; support `EXTERNAL` when offered; never assume mTLS ⇒ passwordless |
-| Cert sourcing | Files + in-memory bytes + secrets-manager hook; uniform validation |
+| Cert sourcing | **Done (PEM)** — files + in-memory bytes + secrets-manager hook → `TlsMaterial`; PKCS#12 deferred |
 | Cert rotation | Re-invoke secrets hook on **new connection only**; mid-connection cert expiry → orderly reconnect with fresh material |
 | Config strategy | Validated named profiles; durable+persistent enforced together |
 | Default queue profile | `durable-at-least-once`: quorum + persistent + TTL + DLX + `x-delivery-limit` |
@@ -73,6 +73,7 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Large-payload RPC 16KB·c1 | **Done** — fair stub-reply bench + coalesced publish/ack drains + fewer receive copies; near parity vs pika (`bench/results/20260811T144045Z.json`) |
 | TLS / brew AMQPS verify-full | **Done** — `scripts/gen_amqps_certs.sh`, SSL-context unit tests, opt-in `tests/integration/test_amqps_smoke.py` (PLAIN over TLS, `tls-verify-full`) |
 | mTLS / SASL EXTERNAL smoke | **Done** — client cert in cert script; opt-in `test_amqps_mtls_smoke.py`; SASL selection unit tests; never assume mTLS ⇒ passwordless |
+| Cert sourcing (PEM) | **Done** — `tls_material.py`: file / bytes / `tls_secrets` hook; re-resolve each `connect()`; EXTERNAL from any cert source; key redaction in `repr` |
 
 ### Deferred (explicit)
 
@@ -80,6 +81,7 @@ Single status view. Detail and rationale live in the sections linked by name.
 |---|---|
 | In-flight RPC park-and-retry across reconnect | v1 fail-fast only; avoids multi-path outcomes |
 | App-level mesh registration authority | Out of v1; broker permissions are the hard gate |
+| PKCS#12 cert/key loading | PEM-only this pass; add when an integrator needs it |
 
 ## Layering overview
 
@@ -137,8 +139,8 @@ Responsibility: raw bytes on the wire.
 - No protocol semantics here — just "send frame," "receive frame"
 
 **mTLS specifics:**
-- Client certificate + private key loading (PEM/PKCS#12), sourced from any
-  of: file paths, in-memory bytes, or a pluggable secrets-manager hook
+- Client certificate + private key loading (**PEM**; PKCS#12 deferred), sourced
+  from any of: file paths, in-memory bytes, or a pluggable secrets-manager hook
   (with rotation support) — see "Cert/key material sourcing" below for the
   full decision. Loading is configurable independently of the CA bundle
   used to verify the broker's certificate, which can be sourced the same
@@ -636,9 +638,10 @@ tests/
    disconnect; `Session.reconnect` / `ReconnectCoordinator`; `MeshService.rebind`;
    SpeC++ Phase 2 CheckSat; Lean `DeadLetterTimeout` + `Reconnect` proofs.
 
-**v1 core sequencing complete.** Release CI, Pattern Lean, AMQPS verify-full, and
-mTLS EXTERNAL harnesses are in place. Remaining deferred items: in-flight
-park-and-retry, app-level mesh registry.
+**v1 core sequencing complete.** Release CI, Pattern Lean, AMQPS verify-full,
+mTLS EXTERNAL, and PEM cert sourcing (files/bytes/secrets hook) are in place.
+Remaining deferred items: in-flight park-and-retry, app-level mesh registry,
+PKCS#12.
 
 **Throughput:** `bench/` compares nuropb-rmq vs pika for raw publish/consume,
 RPC exclusive reply queue, pika `amq.rabbitmq.reply-to`, and fanout events.
@@ -800,29 +803,30 @@ Cross-check the Decision ledger at the top of this document for status.
   permissions (`mesh-bind-namespaced`); library refuses binds outside
   configured service namespace; no app-level registration authority in v1.
   Detail under "Mesh registration authorization."
-- **Cert/key material sourcing — decided.** All three sources are supported,
+- **Cert/key material sourcing — done (PEM).** All three sources are supported,
   not chosen between: file paths, in-memory bytes, and a secrets-manager
-  hook. Concretely:
-  - **File paths** — PEM/PKCS#12 cert and key files on disk, the common case
+  hook (`src/nuropb_rmq/transport/tls_material.py`). Concretely:
+  - **File paths** — PEM cert and key files on disk, the common case
     for local dev and simple container deployments (e.g. mounted secrets).
+    PKCS#12 path loading is deferred.
   - **In-memory bytes** — cert/key supplied directly as bytes/`str`, for
     callers who've already loaded material some other way (e.g. from an
     environment-injected value, or already fetched from elsewhere) and don't
     want a round-trip through the filesystem.
   - **Secrets-manager hook** — a pluggable provider interface (e.g. an
-    async callable returning cert/key bytes, or an object with a `get()`
-    method) so integrators can back it with Vault, AWS/GCP/Azure secrets
-    managers, or any internal system, including support for **rotation**
+    async callable returning `TlsMaterial`, or an object with
+    `get_tls_material()`) so integrators can back it with Vault, AWS/GCP/Azure
+    secrets managers, or any internal system, including support for **rotation**
     (re-invoke on each new connection; mid-connection expiry → orderly
     reconnect — see Configuration Strategy).
   - All three normalize to the same internal representation before being
     handed to the TLS layer, so the Protocol/Transport layers don't need to
     know which source was used — the difference is confined to a small
     loader abstraction at the config/connection-setup boundary.
-  - Validation (matching cert/key pairs, expiry checks, CA chain sanity)
-    should run the same way regardless of source, so a bad secrets-manager
-    response fails the same clear way a bad file path would, rather than
-    surfacing as an opaque TLS handshake failure later.
+  - Validation (matching cert/key pairs via `load_cert_chain`, CA via
+    `cadata`/`load_verify_locations`) runs the same way regardless of source,
+    so a bad secrets-manager response fails the same clear way a bad file
+    path would, rather than surfacing as an opaque TLS handshake failure later.
   - Private key material never appears in logs, `repr`, or exception
     messages.
 - **Throughput benchmarking — done.** Harness under [`bench/`](../bench/);
