@@ -46,6 +46,11 @@ CHANNEL_CLOSE_OK = 41
 
 QUEUE_DECLARE = 10
 QUEUE_DECLARE_OK = 11
+QUEUE_BIND = 20
+QUEUE_BIND_OK = 21
+
+EXCHANGE_DECLARE = 10
+EXCHANGE_DECLARE_OK = 11
 
 BASIC_PUBLISH = 40
 BASIC_CONSUME = 20
@@ -108,6 +113,30 @@ def encode_method(method: Method) -> bytes:
         if args.get("nowait"):
             bits |= 16
         body += bytes([bits])
+        body += encode_table(args.get("arguments", {}))
+    elif cid == EXCHANGE and mid == EXCHANGE_DECLARE:
+        body += int(args.get("ticket", 0)).to_bytes(2, "big")
+        body += encode_shortstr(args["exchange"])
+        body += encode_shortstr(args.get("type", "direct"))
+        bits = 0
+        if args.get("passive"):
+            bits |= 1
+        if args.get("durable"):
+            bits |= 2
+        if args.get("auto_delete"):
+            bits |= 4
+        if args.get("internal"):
+            bits |= 8
+        if args.get("nowait"):
+            bits |= 16
+        body += bytes([bits])
+        body += encode_table(args.get("arguments", {}))
+    elif cid == QUEUE and mid == QUEUE_BIND:
+        body += int(args.get("ticket", 0)).to_bytes(2, "big")
+        body += encode_shortstr(args.get("queue", ""))
+        body += encode_shortstr(args.get("exchange", ""))
+        body += encode_shortstr(args.get("routing_key", ""))
+        body += bytes([1 if args.get("nowait") else 0])
         body += encode_table(args.get("arguments", {}))
     elif cid == BASIC and mid == BASIC_PUBLISH:
         body += int(args.get("ticket", 0)).to_bytes(2, "big")
@@ -191,6 +220,10 @@ def decode_method(payload: bytes) -> Method:
         args["queue"], offset = decode_shortstr(payload, offset)
         args["message_count"] = int.from_bytes(payload[offset : offset + 4], "big")
         args["consumer_count"] = int.from_bytes(payload[offset + 4 : offset + 8], "big")
+    elif class_id == EXCHANGE and method_id == EXCHANGE_DECLARE_OK:
+        pass
+    elif class_id == QUEUE and method_id == QUEUE_BIND_OK:
+        pass
     elif class_id == BASIC and method_id == BASIC_CONSUME_OK:
         args["consumer_tag"], _ = decode_shortstr(payload, offset)
     elif class_id == BASIC and method_id == BASIC_DELIVER:

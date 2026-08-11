@@ -1,16 +1,19 @@
-# SpeC++ Protocol SM
+# SpeC++ specs (Protocol + Session)
 
-SMT-LIB encodings of the Protocol connection/channel state-machine
-invariants from `thinking/architecture.md` (invariants 1–7).
+SMT-LIB encodings of Protocol connection/channel invariants 1–7 and Session
+Phase 1b correlation invariants from `thinking/architecture.md`.
 
 ## CheckSat gate
 
 ```bash
 python specs/specpp/check_sat.py
-# or: z3 -smt2 specs/specpp/Protocol/connection_channel_sm.smt2
 ```
 
-- `connection_channel_sm.smt2` must be **sat** (spec admits a model).
-- `connection_channel_sm_negatives.smt2` must be **unsat** (forced
-  invariant violations are contradictory).
-- **UNKNOWN is a hard failure** (no waiver).
+| File | Expected |
+|---|---|
+| `Protocol/connection_channel_sm.smt2` | **sat** |
+| `Protocol/connection_channel_sm_negatives.smt2` | **unsat** |
+| `Session/correlation.smt2` | **sat** |
+| `Session/correlation_negatives.smt2` | **unsat** |
+
+**UNKNOWN is a hard failure** (no waiver).

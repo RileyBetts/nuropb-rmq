@@ -202,6 +202,7 @@ class AmqpConnection:
         durable: bool = False,
         exclusive: bool = False,
         auto_delete: bool = False,
+        arguments: dict[str, Any] | None = None,
     ) -> str:
         ch = self._channels[channel_id]
         ch.assert_open_for_ops()
@@ -215,12 +216,59 @@ class AmqpConnection:
                     "durable": durable,
                     "exclusive": exclusive,
                     "auto_delete": auto_delete,
-                    "arguments": {},
+                    "arguments": arguments or {},
                 },
             ),
         )
         ok = await self._expect(channel_id, m.QUEUE, m.QUEUE_DECLARE_OK)
         return str(ok.args["queue"])
+
+    async def exchange_declare(
+        self,
+        channel_id: int,
+        exchange: str,
+        *,
+        exchange_type: str = "fanout",
+        durable: bool = False,
+        auto_delete: bool = False,
+    ) -> None:
+        ch = self._channels[channel_id]
+        ch.assert_open_for_ops()
+        await self._send_method(
+            channel_id,
+            Method(
+                m.EXCHANGE,
+                m.EXCHANGE_DECLARE,
+                {
+                    "exchange": exchange,
+                    "type": exchange_type,
+                    "durable": durable,
+                    "auto_delete": auto_delete,
+                    "arguments": {},
+                },
+            ),
+        )
+        await self._expect(channel_id, m.EXCHANGE, m.EXCHANGE_DECLARE_OK)
+
+    async def queue_bind(
+        self,
+        channel_id: int,
+        queue: str,
+        exchange: str,
+        *,
+        routing_key: str = "",
+    ) -> None:
+        ch = self._channels[channel_id]
+        ch.assert_open_for_ops()
+        await self._send_method(
+            channel_id,
+            Method(
+                m.QUEUE,
+                m.QUEUE_BIND,
+                {"queue": queue, "exchange": exchange, "routing_key": routing_key, "arguments": {}},
+            ),
+        )
+        await self._expect(channel_id, m.QUEUE, m.QUEUE_BIND_OK)
 
     async def basic_publish(
         self,
@@ -275,6 +323,8 @@ class AmqpConnection:
         )
 
     async def receive(self, timeout: float | None = 5.0) -> IncomingMessage:
+        if timeout is None:
+            return await self._deliveries.get()
         return await asyncio.wait_for(self._deliveries.get(), timeout=timeout)
 
     async def close(self) -> None:

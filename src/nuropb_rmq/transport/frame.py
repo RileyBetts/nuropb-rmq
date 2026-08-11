@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any
@@ -167,6 +168,20 @@ def decode_field_value(
         return int.from_bytes(data[offset : offset + 8], "big"), offset + 8
     if tag == "L":
         return int.from_bytes(data[offset : offset + 8], "big", signed=True), offset + 8
+    if tag == "f":
+        return struct.unpack(">f", data[offset : offset + 4])[0], offset + 4
+    if tag == "d":
+        return struct.unpack(">d", data[offset : offset + 8])[0], offset + 8
+    if tag == "D":
+        # decimal-value: scale (octet) + long-int
+        if offset + 5 > len(data):
+            raise AmqpCodecError("decimal truncated")
+        scale = data[offset]
+        value = int.from_bytes(data[offset + 1 : offset + 5], "big", signed=True)
+        return (scale, value), offset + 5
+    if tag == "T":
+        # timestamp: 64-bit POSIX seconds
+        return int.from_bytes(data[offset : offset + 8], "big"), offset + 8
     if tag == "s":
         return decode_shortstr(data, offset)
     if tag == "S":

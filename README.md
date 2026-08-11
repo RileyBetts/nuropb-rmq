@@ -2,13 +2,17 @@
 
 Native Python RabbitMQ/AMQP 0-9-1 client (no `pika`). Design docs live in
 [`thinking/`](thinking/). SpeC++ CheckSat lives in [`specs/specpp/`](specs/specpp/);
-Lean Protocol proofs live in [`specs/lean/`](specs/lean/).
+Lean proofs live in [`specs/lean/`](specs/lean/).
 
 ## Status
 
-Transport + Protocol foundation: connect, open a channel, declare a queue,
-publish/consume/ack. Lean Phase 1 Protocol SM invariants 1–7 proved.
-Session/RPC/mesh patterns are not implemented yet.
+Transport + Protocol + Session/RPC foundation:
+
+- Connect, channel, declare, publish/consume/ack (no `pika`)
+- Lean Phase 1 Protocol SM invariants 1–7 proved
+- Session exclusive reply queue + correlation table + JSON-RPC RPC
+- Lean Phase 1b Session correlation invariants proved
+- Mesh / events / claims not implemented yet
 
 ## Quick start
 
@@ -28,9 +32,12 @@ Integration smoke (needs RabbitMQ; tries `5672` then `5673`, or set
 pytest -q -m integration
 ```
 
+RPC smoke covers successful `request`/`result` and DLQ-synthesized
+`REQUEST_TIMEOUT` when the service never answers.
+
 Formal gates:
 
 ```bash
-python specs/specpp/check_sat.py   # SpeC++ SMT consistency
-(cd specs/lean && lake build)      # Lean Phase 1 Protocol proofs
+python specs/specpp/check_sat.py   # SpeC++ Protocol + Session SMT
+(cd specs/lean && lake build)      # Lean Phase 1 + Phase 1b proofs
 ```

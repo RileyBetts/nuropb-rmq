@@ -53,14 +53,17 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Config strategy | Validated named profiles; durable+persistent enforced together |
 | Default queue profile | `durable-at-least-once`: quorum + persistent + TTL + DLX + `x-delivery-limit` |
 | Spec consistency | SpeC++ SMT `CheckSat` before Lean |
-| Protocol SM SpeC++ CheckSat | **Passed** — `specs/specpp/Protocol/connection_channel_sm.smt2` (sat) + negatives (unsat); run `python specs/specpp/check_sat.py` |
-| Lean Phase 1 Protocol SM | **Done** — `specs/lean/` proves invariants 1–7 (`lake build`); correspondence in `specs/lean/CORRESPONDENCE.md`; hypothesis PBTs under `tests/protocol/` + `tests/transport/` |
+| Protocol SM SpeC++ CheckSat | **Passed** — Protocol + Session under `specs/specpp/` (`python specs/specpp/check_sat.py`) |
+| Lean Phase 1 Protocol SM | **Done** — `specs/lean/` proves Protocol invariants 1–7 (`lake build`); correspondence in `specs/lean/CORRESPONDENCE.md`; hypothesis PBTs under `tests/protocol/` + `tests/transport/` |
+| Session SpeC++ CheckSat | **Passed** — `specs/specpp/Session/correlation.smt2` (sat) + negatives (unsat) |
+| Lean Phase 1b Session correlation | **Done** — `NuropbRmq.Session.{Correlation,Invariants}`; id format, dual-accessor, collision reject, first-reply-wins, reply-queue brackets table |
 | Lean↔Python (v1) | SpeC++ → Lean model → property-based tests + manual correspondence; no code extraction |
 | TTL anti-enumeration | **Goal**: DLQ-synthesized timeout and “no such method” must not be distinguishable by timing/content alone across the public mesh API |
 | Claims compare | Constant-time (`hmac.compare_digest` or equivalent) |
 | Sequencing step 1 (Transport+Protocol) | **Done** — native AMQP connect/channel/declare/publish/consume/ack in `src/nuropb_rmq/` (no `pika`) |
-| Sequencing step 2 (Lean Phase 1) | **Done** — next is Session+RPC (step 3), then Lean Phase 1b |
-
+| Sequencing step 2 (Lean Phase 1) | **Done** — Protocol SM invariants 1–7 |
+| Sequencing step 3 (Session+RPC) | **Done** — exclusive reply queue, correlation table, JSON-RPC client/server, DLQ timeout path |
+| Sequencing step 4 (Lean Phase 1b) | **Done** — Session correlation proofs; next is events/pub-sub (step 5) |
 ### Deferred (explicit)
 
 | Item | Why deferred |
@@ -609,11 +612,13 @@ tests/
 2. **Lean Phase 1** — **DONE.** Connection/channel state machine modeled and
    invariants 1–7 proved under `specs/lean/` (`lake build`); hypothesis PBTs
    and `CORRESPONDENCE.md` keep Python aligned.
-3. **Session layer + RPC pattern** *(next)*: correlation table, JSON-RPC 2.0
-   request/reply over AMQP, single service ↔ single client, no mesh yet.
-4. **Lean Phase 1b**: prove the RPC correlation invariant (every request gets
-   exactly one resolution).
-5. **Events/pub-sub pattern**: JSON-RPC notification shape over topic/fanout.
+3. **Session layer + RPC pattern** — **DONE.** Correlation table, exclusive
+   reply queue, JSON-RPC 2.0 request/reply (`RpcClient`/`RpcServer`), DLQ
+   timeout synthesis; unit + integration smoke under `tests/`.
+4. **Lean Phase 1b** — **DONE.** Session correlation invariants proved
+   (`NuropbRmq.Session`); SpeC++ Session CheckSat sat/unsat; PBTs under
+   `tests/session/`.
+5. **Events/pub-sub pattern** *(next)*: JSON-RPC notification shape over topic/fanout.
 6. **Mesh registration/binding + context/claims propagation**: full nuropb
    pattern parity.
 7. **Lean Phase 2**: reconnect/ordering/delivery guarantees, once there's a
@@ -862,8 +867,7 @@ Consistency-check targets (Lean proves implementation afterward):
 7. Heartbeat timeout is a single profile-configured value (no parallel
    competing heartbeat policies).
 
-Session-layer targets (Phase 1b, after RPC exists) — listed so SpeC++
-sorts can anticipate them:
+Session-layer targets (Phase 1b) — **proved** in SpeC++ + Lean:
 
 - Id format + dual-accessor consistency
 - Caller-supplied id collision reject

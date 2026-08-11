@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""SpeC++ CheckSat gate for Protocol SM clauses.
+"""SpeC++ CheckSat gate for Protocol + Session clauses.
 
-Runs Z3 against SMT-LIB specs under specs/specpp/Protocol/.
+Runs Z3 against SMT-LIB specs under specs/specpp/{Protocol,Session}/.
 Exit 0 only if every expected-sat file is sat and every expected-unsat
 file is unsat. UNKNOWN is a hard failure (no waiver).
 """
@@ -13,12 +13,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-PROTOCOL = ROOT / "Protocol"
 
-# (path relative to Protocol/, expected result)
-CHECKS: list[tuple[str, str]] = [
-    ("connection_channel_sm.smt2", "sat"),
-    ("connection_channel_sm_negatives.smt2", "unsat"),
+# (subdir, filename, expected result)
+CHECKS: list[tuple[str, str, str]] = [
+    ("Protocol", "connection_channel_sm.smt2", "sat"),
+    ("Protocol", "connection_channel_sm_negatives.smt2", "unsat"),
+    ("Session", "correlation.smt2", "sat"),
+    ("Session", "correlation_negatives.smt2", "unsat"),
 ]
 
 
@@ -32,14 +33,19 @@ def run_z3(path: Path) -> str:
     out = (proc.stdout or "").strip().splitlines()
     if not out:
         raise RuntimeError(f"z3 produced no output for {path}: {proc.stderr}")
-    # Last non-empty line is the check-sat result
+    # Last non-empty line that is sat/unsat/unknown (ignore get-model noise)
+    for line in reversed(out):
+        token = line.strip().lower()
+        if token in {"sat", "unsat", "unknown"}:
+            return token
     return out[-1].strip()
 
 
 def main() -> int:
     failures: list[str] = []
-    for rel, expected in CHECKS:
-        path = PROTOCOL / rel
+    for sub, name, expected in CHECKS:
+        path = ROOT / sub / name
+        rel = f"{sub}/{name}"
         if not path.exists():
             failures.append(f"missing {path}")
             continue

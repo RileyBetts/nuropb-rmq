@@ -1,6 +1,8 @@
-# NuropbRmq Lean specs (Protocol Phase 1)
+# NuropbRmq Lean specs (Protocol Phase 1 + Session Phase 1b)
 
-Lean 4.33 model and proofs of Protocol connection/channel invariants 1–7.
+Lean 4.33 model and proofs of Protocol connection/channel invariants 1–7 and
+Session correlation invariants (id format, dual-accessor, collision reject,
+first-reply-wins, reply-queue lifetime brackets table).
 
 ```bash
 cd specs/lean

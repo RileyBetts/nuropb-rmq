@@ -55,6 +55,30 @@ def test_table_roundtrip_shallow() -> None:
     assert decoded["capabilities"]["foo"] is True
 
 
+def test_decodes_timestamp_and_array_for_x_death() -> None:
+    """Dead-lettered messages carry x-death arrays with timestamp 'T' fields."""
+    from nuropb_rmq.transport.frame import decode_field_value, encode_shortstr, encode_table
+
+    # Array of one table: {count: long, time: timestamp}
+    # Build table body without outer length, then wrap as field-value 'F'+table
+    table_payload = encode_table({"count": 1})  # uses 'I' for int — fine
+    # Manually append timestamp field into a custom table
+    parts = bytearray()
+    parts += encode_shortstr("count")
+    parts += b"l" + (1).to_bytes(8, "big")
+    parts += encode_shortstr("time")
+    parts += b"T" + (1_700_000_000).to_bytes(8, "big")
+    table = len(parts).to_bytes(4, "big") + bytes(parts)
+    inner = b"F" + table
+    array = b"A" + len(inner).to_bytes(4, "big") + inner
+    val, end = decode_field_value(array, 0)
+    assert end == len(array)
+    assert isinstance(val, list) and len(val) == 1
+    assert val[0]["count"] == 1
+    assert val[0]["time"] == 1_700_000_000
+    _ = table_payload
+
+
 def test_heartbeat_frame() -> None:
     raw = encode_frame(Frame(FrameType.HEARTBEAT, 0, b""))
     frame, _ = decode_frame(raw)

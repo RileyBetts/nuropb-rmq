@@ -1,4 +1,4 @@
-# Lean ↔ Python correspondence (Protocol Phase 1)
+# Lean ↔ Python correspondence (Protocol Phase 1 + Session Phase 1b)
 
 Manual correspondence map for the Lean↔Python coupling decided in
 `thinking/architecture.md`: SpeC++ → Lean model → property-based tests +
@@ -14,6 +14,9 @@ manual review. No code extraction.
 | `NuropbRmq.Protocol.FrameDecode` | `nuropb_rmq.transport.frame` decode/encode bounds |
 | `NuropbRmq.Protocol.Invariants` | SpeC++ invariants 1–7; PBTs under `tests/protocol/` + `tests/transport/` |
 | `specs/specpp/Protocol/connection_channel_sm.smt2` | Same sort universe as Lean `ConnState` / `ChanState` / `TlsState` |
+| `NuropbRmq.Session.Correlation` | `nuropb_rmq.session.{ids,correlation,session}` |
+| `NuropbRmq.Session.Invariants` | SpeC++ Session Phase 1b; PBTs under `tests/session/` |
+| `specs/specpp/Session/correlation.smt2` | Session correlation sorts / clauses |
 
 ## States
 
@@ -65,7 +68,7 @@ manual review. No code extraction.
 | `legalSend .open .tuneOk` | `CONNECTION_OPEN` in `TUNE_OK` |
 | `legalSend .closeOk .closing` | `CONNECTION_CLOSE_OK` in `CLOSING` |
 
-## Invariants
+## Protocol invariants
 
 | # | Lean theorem(s) | Python / tests |
 |---|---|---|
@@ -77,9 +80,29 @@ manual review. No code extraction.
 | 6 | `decodeAccepted_*`, `inv6_decodeAccepted_implies_bounds` | `decode_frame` / `encode_table`; `test_inv6_pbt_*` |
 | 7 | `tuneOk_heartbeat_bounds`, `plainOpenOk_heartbeat` | heartbeat `1..60`; `test_inv7_*` |
 
+## Session Phase 1b
+
+| SpeC++ / Lean | Python |
+|---|---|
+| `validIdLen` / `validIdLen_bounds` | `session.ids.validate_id` (1..255 octets + charset) |
+| `dualAccessorOk` | RpcClient sets AMQP `correlation_id` = JSON-RPC `id` |
+| `tryRegister` → `.collision` | `CorrelationTable.register` → `IdCollisionError` |
+| `tryResolve` → `.firstWin` / `.lateDiscard` | `CorrelationTable.resolve` first-wins / late discard |
+| `openReply` / `closeReply` brackets `pending` | `Session.start` / `Session.close` + `discard_all` |
+| `wellFormed` | reply queue lifetime brackets correlation table |
+
+| Lean theorem(s) | Python / tests |
+|---|---|
+| `register_collision`, `register_ok_fresh` | `test_collision_reject`, `test_pbt_collision_reject` |
+| `resolve_first_wins`, `second_resolve_is_late` | `test_first_reply_wins_late_discarded`, `test_pbt_first_wins` |
+| `register_requires_reply_open`, `close_clears_pending` | Session start/close; reply queue exclusive auto-delete |
+
 ## Build / test
 
 ```bash
+python specs/specpp/check_sat.py
 cd specs/lean && lake build
-cd ../.. && pytest -q tests/protocol tests/transport
+cd ../.. && pytest -q tests/protocol tests/transport tests/session tests/patterns
+# integration (needs local RabbitMQ):
+pytest -q tests/integration
 ```
