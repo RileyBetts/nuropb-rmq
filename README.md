@@ -59,6 +59,13 @@ pytest -q
 CI and the commands above use **pip**. Optional local `uv run …` is fine;
 `uv.lock` is gitignored and not the supported CI lockfile.
 
+## Examples
+
+Runnable demo (one service + one client: mesh RPC, events, registry discovery):
+
+[`examples/one_client_one_service/`](examples/one_client_one_service/) — start
+`service.py`, then `client.py` against local RabbitMQ.
+
 ## CI / gates
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the same gates:
