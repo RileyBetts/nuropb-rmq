@@ -63,12 +63,14 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Sequencing step 1 (Transport+Protocol) | **Done** — native AMQP connect/channel/declare/publish/consume/ack in `src/nuropb_rmq/` (no `pika`) |
 | Sequencing step 2 (Lean Phase 1) | **Done** — Protocol SM invariants 1–7 |
 | Sequencing step 3 (Session+RPC) | **Done** — exclusive reply queue, correlation table, JSON-RPC client/server, DLQ timeout path |
-| Sequencing step 4 (Lean Phase 1b) | **Done** — Session correlation proofs; next is events/pub-sub (step 5) |
+| Sequencing step 4 (Lean Phase 1b) | **Done** — Session correlation proofs |
+| Sequencing step 5 (Events/pub-sub) | **Done** — JSON-RPC notifications over topic/fanout (`patterns/events.py`) |
+| Throughput benchmark harness | **Done** — `bench/` compares nuropb-rmq vs pika (optional `[bench]` extra); exclusive reply-queue vs `amq.rabbitmq.reply-to` measured, default unchanged |
+
 ### Deferred (explicit)
 
 | Item | Why deferred |
 |---|---|
-| Throughput benchmark harness | Starts after Transport+Protocol can speak AMQP; measure exclusive-reply-queue cost vs direct reply-to then |
 | Phase 2 reconnect/ordering Lean proofs | After stable Session+RPC implementation |
 | App-level mesh registration authority | Out of v1; broker permissions are the hard gate |
 | TLS integration against local brew AMQPS | PLAIN smoke verified; TLS code path + SM invariant covered in unit tests; broker AMQPS needs deployed trust anchors for full verify-full smoke |
@@ -618,11 +620,18 @@ tests/
 4. **Lean Phase 1b** — **DONE.** Session correlation invariants proved
    (`NuropbRmq.Session`); SpeC++ Session CheckSat sat/unsat; PBTs under
    `tests/session/`.
-5. **Events/pub-sub pattern** *(next)*: JSON-RPC notification shape over topic/fanout.
-6. **Mesh registration/binding + context/claims propagation**: full nuropb
-   pattern parity.
+5. **Events/pub-sub pattern** — **DONE.** JSON-RPC notification shape over
+   topic/fanout (`EventPublisher` / `EventSubscriber`); unit + integration smoke.
+6. **Mesh registration/binding + context/claims propagation** *(next)*: full
+   nuropb pattern parity.
 7. **Lean Phase 2**: reconnect/ordering/delivery guarantees, once there's a
    stable implementation to model.
+
+**Throughput:** `bench/` compares nuropb-rmq vs pika for raw publish/consume,
+RPC exclusive reply queue, pika `amq.rabbitmq.reply-to`, and fanout events.
+`pika` is only an optional `[bench]` dependency — never a runtime requirement.
+Exclusive reply-queue remains the product default; direct reply-to is a
+measured baseline only.
 
 ## Decisions log (detail)
 
@@ -803,11 +812,14 @@ Cross-check the Decision ledger at the top of this document for status.
     surfacing as an opaque TLS handshake failure later.
   - Private key material never appears in logs, `repr`, or exception
     messages.
-- **Throughput benchmarking — deferred.** Baseline: nuropb+pika.
-  Targets/message sizes/concurrency TBD when Transport+Protocol can speak
-  AMQP. Must include exclusive reply-queue overhead vs direct reply-to so
-  the trust/robustness trade-off has a measured size. Not a blocker for
-  SpeC++ Protocol formalization.
+- **Throughput benchmarking — done.** Harness under [`bench/`](../bench/);
+  install `pip install -e ".[bench]"` (pulls `pika` for comparisons only).
+  Run `python -m bench.compare` (or `--quick`). Workloads: raw
+  publish/consume, RPC exclusive reply queue (both libraries), pika-only
+  `amq.rabbitmq.reply-to`, fanout notifications (N=1 and N=3). Reports
+  msgs/sec and latency p50/p99 to `bench/results/*.json`. Exclusive
+  reply-queue remains the product default; direct reply-to is measured,
+  not reopened as the default path.
 
 ## SpeC++ prep artifacts
 

@@ -5,9 +5,11 @@ from __future__ import annotations
 import pytest
 
 from nuropb_rmq.patterns.envelope import (
+    decode_notification,
     decode_request,
     decode_response,
     encode_error,
+    encode_notification,
     encode_request,
     encode_result,
 )
@@ -20,6 +22,31 @@ def test_request_roundtrip() -> None:
     assert method == "math.add"
     assert params == {"a": 1, "b": 2}
     assert rid == "abc"
+
+
+def test_notification_roundtrip() -> None:
+    body = encode_notification("order.created", {"id": 7})
+    method, params = decode_notification(body)
+    assert method == "order.created"
+    assert params == {"id": 7}
+    assert b'"id"' not in body or b'"id":7' in body  # params may contain id key
+    assert b'"jsonrpc":"2.0"' in body
+    # Top-level id must be absent
+    import json
+
+    assert "id" not in json.loads(body)
+
+
+def test_notification_rejects_request_with_id() -> None:
+    body = encode_request("order.created", {}, "abc")
+    with pytest.raises(RpcError, match="must not include id"):
+        decode_notification(body)
+
+
+def test_notification_rejects_response() -> None:
+    body = encode_result({"ok": True}, "abc")
+    with pytest.raises(RpcError, match="must not be a response"):
+        decode_notification(body)
 
 
 def test_result_roundtrip() -> None:

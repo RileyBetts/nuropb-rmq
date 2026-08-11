@@ -78,6 +78,39 @@ def decode_request(body: bytes) -> tuple[str, Any, str]:
     return method, msg.get("params"), request_id
 
 
+def encode_notification(method: str, params: Any = None) -> bytes:
+    """JSON-RPC 2.0 notification: request shape without `id`."""
+    msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+    if params is not None:
+        msg["params"] = params
+    return json.dumps(msg, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def decode_notification(body: bytes) -> tuple[str, Any]:
+    """Decode a notification; reject responses and id-bearing requests."""
+    msg = decode_message(body)
+    if "result" in msg or "error" in msg:
+        raise RpcError(
+            INVALID_ENVELOPE,
+            "notification must not be a response",
+            make_error_data(code=INVALID_ENVELOPE),
+        )
+    if "id" in msg:
+        raise RpcError(
+            INVALID_ENVELOPE,
+            "notification must not include id",
+            make_error_data(code=INVALID_ENVELOPE),
+        )
+    method = msg.get("method")
+    if not isinstance(method, str):
+        raise RpcError(
+            INVALID_ENVELOPE,
+            "notification requires string method",
+            make_error_data(code=INVALID_ENVELOPE),
+        )
+    return method, msg.get("params")
+
+
 def decode_response(body: bytes) -> Any:
     msg = decode_message(body)
     request_id = msg.get("id")
