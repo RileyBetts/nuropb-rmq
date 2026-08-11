@@ -8,9 +8,13 @@ All notable changes to this project are documented in this file.
 
 - README restructured for consumers first (pitch, badges, install, usage); maintainer
   branching/CI gates moved to [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- README capability walls thinned; operators directed to [`docs/`](docs/README.md)
 
 ### Added
 
+- User-facing [`docs/`](docs/README.md): architecture diagrams, connection/TLS/queue
+  concepts, service mesh + JWT claims, cloud/enterprise AMQPS and broker-permission
+  guides
 - PKCS#12 (`.p12`/`.pfx`) TLS material via `pkcs12_file` / `pkcs12_data` (+ optional password);
   optional `[pkcs12]` extra (`cryptography`); normalizes to PEM `TlsMaterial`
 - Optional AMQP mesh discovery registry (`nr.mesh.registry` fanout):
