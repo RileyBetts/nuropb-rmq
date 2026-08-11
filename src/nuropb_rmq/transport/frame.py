@@ -30,23 +30,21 @@ class Frame:
     payload: bytes
 
 
-def encode_frame(frame: Frame, *, frame_max: int = DEFAULT_FRAME_MAX) -> bytes:
+def encode_frame(frame: Frame, *, frame_max: int = DEFAULT_FRAME_MAX) -> bytearray:
     if frame.channel < 0 or frame.channel > 0xFFFF:
         raise AmqpCodecError(f"channel out of range: {frame.channel}")
     size = len(frame.payload)
     if size > frame_max:
         raise AmqpCodecError(f"frame payload {size} exceeds frame_max {frame_max}")
-    return (
-        bytes([int(frame.frame_type)])
-        + frame.channel.to_bytes(2, "big")
-        + size.to_bytes(4, "big")
-        + frame.payload
-        + bytes([FRAME_END])
-    )
+    buf = bytearray(8 + size)
+    struct.pack_into("!BHI", buf, 0, int(frame.frame_type), frame.channel, size)
+    buf[7 : 7 + size] = frame.payload
+    buf[-1] = FRAME_END
+    return buf
 
 
 def decode_frame(
-    data: bytes,
+    data: bytes | bytearray | memoryview,
     *,
     frame_max: int = DEFAULT_FRAME_MAX,
     offset: int = 0,
@@ -55,24 +53,27 @@ def decode_frame(
 
     Validates the length prefix against ``frame_max`` *before* accepting the
     payload (never allocates proportional to an unvalidated length).
+    Accepts ``bytearray`` / ``memoryview`` so callers can decode without
+    copying the entire receive buffer.
     """
-    if len(data) - offset < 7:
+    view = memoryview(data)
+    if len(view) - offset < 7:
         raise AmqpCodecError("incomplete frame header")
-    frame_type_i = data[offset]
+    frame_type_i = view[offset]
     try:
         frame_type = FrameType(frame_type_i)
     except ValueError as exc:
         raise AmqpCodecError(f"unknown frame type {frame_type_i}") from exc
-    channel = int.from_bytes(data[offset + 1 : offset + 3], "big")
-    size = int.from_bytes(data[offset + 3 : offset + 7], "big")
+    channel = int.from_bytes(view[offset + 1 : offset + 3], "big")
+    size = int.from_bytes(view[offset + 3 : offset + 7], "big")
     if size < 0 or size > frame_max:
         raise AmqpCodecError(f"frame size {size} exceeds frame_max {frame_max}")
     end = offset + 7 + size
-    if len(data) < end + 1:
+    if len(view) < end + 1:
         raise AmqpCodecError("incomplete frame payload")
-    if data[end] != FRAME_END:
-        raise AmqpCodecError(f"bad frame end byte 0x{data[end]:02x}")
-    payload = data[offset + 7 : end]
+    if view[end] != FRAME_END:
+        raise AmqpCodecError(f"bad frame end byte 0x{view[end]:02x}")
+    payload = bytes(view[offset + 7 : end])
     return Frame(frame_type=frame_type, channel=channel, payload=payload), end + 1
 
 

@@ -70,6 +70,7 @@ class DlqTimeoutProcessor:
                         body,
                         routing_key=reply_to,
                         properties=props,
+                        drain=False,
                     )
                 await self.conn.basic_ack(self.channel_id, msg.delivery_tag)
         except asyncio.CancelledError:

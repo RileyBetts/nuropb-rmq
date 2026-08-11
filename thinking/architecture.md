@@ -70,6 +70,7 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Throughput benchmark harness | **Done** — `bench/` compares nuropb-rmq vs pika (optional `[bench]` extra); exclusive reply-queue vs `amq.rabbitmq.reply-to` measured, default unchanged |
 | Release CI | **Done** — GitHub Actions: SpeC++ CheckSat, unit + claims pytest, RabbitMQ integration, Lean `lake build`; Apache-2.0 |
 | Pattern Lean (mesh + claims) | **Done** — `NuropbRmq.Pattern.{Mesh,Claims,Invariants}`; SpeC++ Pattern CheckSat already passed |
+| Large-payload RPC 16KB·c1 | **Done** — fair stub-reply bench + coalesced publish/ack drains + fewer receive copies; near parity vs pika (`bench/results/20260811T144045Z.json`) |
 
 ### Deferred (explicit)
 
@@ -78,7 +79,6 @@ Single status view. Detail and rationale live in the sections linked by name.
 | In-flight RPC park-and-retry across reconnect | v1 fail-fast only; avoids multi-path outcomes |
 | App-level mesh registration authority | Out of v1; broker permissions are the hard gate |
 | TLS integration against local brew AMQPS | PLAIN smoke verified; TLS code path + SM invariant covered in unit tests; broker AMQPS needs deployed trust anchors for full verify-full smoke |
-| Large-payload single-stream RPC throughput | Bench noted 16KB·c1 RPC outlier vs pika; not a sequencing blocker |
 
 ## Layering overview
 
@@ -635,9 +635,8 @@ tests/
    disconnect; `Session.reconnect` / `ReconnectCoordinator`; `MeshService.rebind`;
    SpeC++ Phase 2 CheckSat; Lean `DeadLetterTimeout` + `Reconnect` proofs.
 
-**v1 core sequencing complete.** Release CI is in place (GitHub Actions). Remaining
-deferred items: in-flight park-and-retry, app-level mesh registry, full AMQPS smoke,
-16KB RPC outlier tuning.
+**v1 core sequencing complete.** Release CI and Pattern Lean are in place. Remaining
+deferred items: in-flight park-and-retry, app-level mesh registry, full AMQPS smoke.
 
 **Throughput:** `bench/` compares nuropb-rmq vs pika for raw publish/consume,
 RPC exclusive reply queue, pika `amq.rabbitmq.reply-to`, and fanout events.

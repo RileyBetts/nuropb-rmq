@@ -296,21 +296,33 @@ class AmqpConnection:
         exchange: str = "",
         routing_key: str = "",
         properties: dict[str, Any] | None = None,
+        drain: bool = True,
     ) -> None:
         ch = self._channels[channel_id]
         ch.assert_open_for_ops()
-        await self._send_method(
-            channel_id,
-            Method(
-                m.BASIC,
-                m.BASIC_PUBLISH,
-                {"exchange": exchange, "routing_key": routing_key, "mandatory": False},
-            ),
+        # Coalesce method + content-header + body into one write burst.
+        self._write_frame(
+            Frame(
+                FrameType.METHOD,
+                channel_id,
+                encode_method(
+                    Method(
+                        m.BASIC,
+                        m.BASIC_PUBLISH,
+                        {
+                            "exchange": exchange,
+                            "routing_key": routing_key,
+                            "mandatory": False,
+                        },
+                    )
+                ),
+            )
         )
         header = encode_content_header(class_id=m.BASIC, body_size=len(body), properties=properties)
-        await self._send_frame(Frame(FrameType.HEADER, channel_id, header))
-        # Split body if needed; for smoke tests bodies are small.
-        await self._send_frame(Frame(FrameType.BODY, channel_id, body))
+        self._write_frame(Frame(FrameType.HEADER, channel_id, header))
+        self._write_frame(Frame(FrameType.BODY, channel_id, body))
+        if drain:
+            await self._drain()
 
     async def basic_consume(self, channel_id: int, queue: str, *, consumer_tag: str = "") -> str:
         ch = self._channels[channel_id]
@@ -332,13 +344,22 @@ class AmqpConnection:
         ok = await self._expect(channel_id, m.BASIC, m.BASIC_CONSUME_OK)
         return str(ok.args["consumer_tag"])
 
-    async def basic_ack(self, channel_id: int, delivery_tag: int) -> None:
+    async def basic_ack(
+        self, channel_id: int, delivery_tag: int, *, drain: bool = True
+    ) -> None:
         ch = self._channels[channel_id]
         ch.assert_open_for_ops()
-        await self._send_method(
-            channel_id,
-            Method(m.BASIC, m.BASIC_ACK, {"delivery_tag": delivery_tag, "multiple": False}),
+        self._write_frame(
+            Frame(
+                FrameType.METHOD,
+                channel_id,
+                encode_method(
+                    Method(m.BASIC, m.BASIC_ACK, {"delivery_tag": delivery_tag, "multiple": False})
+                ),
+            )
         )
+        if drain:
+            await self._drain()
 
     async def receive(self, timeout: float | None = 5.0) -> IncomingMessage:
         if self._lost_exc is not None:
@@ -423,11 +444,19 @@ class AmqpConnection:
     async def _send_method(self, channel: int, method: Method) -> None:
         await self._send_frame(Frame(FrameType.METHOD, channel, encode_method(method)))
 
-    async def _send_frame(self, frame: Frame) -> None:
+    def _write_frame(self, frame: Frame) -> None:
         if self._writer is None:
             raise ProtocolError("not connected")
         self._writer.write(encode_frame(frame, frame_max=self.frame_max))
+
+    async def _drain(self) -> None:
+        if self._writer is None:
+            raise ProtocolError("not connected")
         await self._writer.drain()
+
+    async def _send_frame(self, frame: Frame) -> None:
+        self._write_frame(frame)
+        await self._drain()
 
     async def _expect(self, channel: int, class_id: int, method_id: int) -> Method:
         key = (channel, class_id, method_id)
@@ -450,7 +479,7 @@ class AmqpConnection:
                 self._buffer.extend(chunk)
                 while True:
                     try:
-                        frame, nxt = decode_frame(bytes(self._buffer), frame_max=self.frame_max)
+                        frame, nxt = decode_frame(self._buffer, frame_max=self.frame_max)
                     except AmqpCodecError as exc:
                         if "incomplete" in str(exc):
                             break
@@ -505,8 +534,20 @@ class AmqpConnection:
                         slot = pending_content.get(frame.channel)
                         if slot is None or slot["remaining"] is None:
                             self.sm.reject("body frame without header")
-                        slot["body"].extend(frame.payload)
-                        slot["remaining"] -= len(frame.payload)
+                        rem = int(slot["remaining"])
+                        plen = len(frame.payload)
+                        # Common path: single body frame — keep payload bytes as-is.
+                        if rem == plen and not slot["body"]:
+                            slot["body"] = frame.payload
+                            slot["remaining"] = 0
+                            self._finish_delivery(frame.channel, pending_content)
+                            continue
+                        body = slot["body"]
+                        if isinstance(body, bytes):
+                            body = bytearray(body)
+                            slot["body"] = body
+                        body.extend(frame.payload)
+                        slot["remaining"] = rem - plen
                         if slot["remaining"] < 0:
                             self.sm.reject("body exceeded content header size")
                         if slot["remaining"] == 0:
@@ -527,11 +568,14 @@ class AmqpConnection:
     def _finish_delivery(self, channel: int, pending: dict[int, dict[str, Any]]) -> None:
         slot = pending.pop(channel)
         deliver: Method = slot["deliver"]
+        body = slot["body"]
+        if not isinstance(body, bytes):
+            body = bytes(body)
         msg = IncomingMessage(
             delivery_tag=int(deliver.args["delivery_tag"]),
             exchange=str(deliver.args.get("exchange", "")),
             routing_key=str(deliver.args.get("routing_key", "")),
-            body=bytes(slot["body"]),
+            body=body,
             properties=dict(slot["properties"]),
             redelivered=bool(deliver.args.get("redelivered")),
             consumer_tag=str(deliver.args.get("consumer_tag", "")),

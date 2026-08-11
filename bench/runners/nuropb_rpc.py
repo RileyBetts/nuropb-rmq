@@ -1,4 +1,8 @@
-"""nuropb-rmq: RPC over exclusive reply queue."""
+"""nuropb-rmq: RPC over exclusive reply queue.
+
+Compare is request-sized with a tiny stub reply (same shape as pika exclusive
+bench): large ``params`` on the request; handler returns ``{"ok": true}``.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +35,8 @@ async def run_rpc_exclusive(
     latencies: list[float] = []
 
     async def handler(method: str, params: object) -> object:
-        return {"echo": params}
+        # Stub reply — fair vs pika exclusive (do not echo large params).
+        return {"ok": True}
 
     server = RpcServer(cfg, queue=queue, handler=handler)
     await server.start()
@@ -73,4 +78,5 @@ async def run_rpc_exclusive(
         msgs_per_sec=timed_msgs_per_sec(message_count, sw.elapsed),
         latency_p50_ms=p50,
         latency_p99_ms=p99,
+        notes="stub reply (request-sized)",
     )
