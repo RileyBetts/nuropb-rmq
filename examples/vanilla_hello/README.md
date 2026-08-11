@@ -9,7 +9,8 @@ publisher.py  --default exchange-->  nr.ex.hello  -->  consumer.py
 ## Prerequisites
 
 - RabbitMQ (default `127.0.0.1:5672`, `guest` / `guest`)
-- From the repo root: `pip install -e .`
+- From the repo root: `uv sync --dev`
+
 
 Optional: `NUROPB_RMQ_HOST`, `NUROPB_RMQ_PORT`, `NUROPB_RMQ_USER`, `NUROPB_RMQ_PASSWORD`.
 

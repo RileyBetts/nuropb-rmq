@@ -10,4 +10,3 @@ specs/lean/.lake/
 .hypothesis/
 erl_crash.dump
 *.dump
-uv.lock

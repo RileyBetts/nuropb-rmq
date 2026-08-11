@@ -1,5 +1,15 @@
 # Contributing
 
+## Setup
+
+```bash
+uv sync --dev
+```
+
+Use `uv run …` for pytest, ruff, and example scripts. Add product extras as needed
+(e.g. `uv sync --dev --extra claims`). There is no `[dev]` package extra — maintainer
+tooling is the PEP 735 `dev` dependency group.
+
 ## Branching
 
 Use the **feature → development → main** flow documented in [`README.md`](README.md#branching).

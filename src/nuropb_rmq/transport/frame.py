@@ -149,39 +149,55 @@ def decode_field_value(
         raise AmqpCodecError("missing field value type")
     tag = chr(data[offset])
     offset += 1
+
+    def _need(n: int, what: str) -> None:
+        if offset + n > len(data):
+            raise AmqpCodecError(f"{what} truncated")
+
     if tag == "V":
         return None, offset
     if tag == "t":
+        _need(1, "bool")
         return bool(data[offset]), offset + 1
     if tag == "b":
+        _need(1, "byte")
         return int.from_bytes(data[offset : offset + 1], "big", signed=True), offset + 1
     if tag == "B":
+        _need(1, "ubyte")
         return data[offset], offset + 1
     if tag == "U":
+        _need(2, "ushort")
         return int.from_bytes(data[offset : offset + 2], "big"), offset + 2
     if tag == "u":
+        _need(2, "short")
         return int.from_bytes(data[offset : offset + 2], "big", signed=True), offset + 2
     if tag == "i":
+        _need(4, "uint")
         return int.from_bytes(data[offset : offset + 4], "big"), offset + 4
     if tag == "I":
+        _need(4, "int")
         return int.from_bytes(data[offset : offset + 4], "big", signed=True), offset + 4
     if tag == "l":
+        _need(8, "ulong")
         return int.from_bytes(data[offset : offset + 8], "big"), offset + 8
     if tag == "L":
+        _need(8, "long")
         return int.from_bytes(data[offset : offset + 8], "big", signed=True), offset + 8
     if tag == "f":
+        _need(4, "float")
         return struct.unpack(">f", data[offset : offset + 4])[0], offset + 4
     if tag == "d":
+        _need(8, "double")
         return struct.unpack(">d", data[offset : offset + 8])[0], offset + 8
     if tag == "D":
         # decimal-value: scale (octet) + long-int
-        if offset + 5 > len(data):
-            raise AmqpCodecError("decimal truncated")
+        _need(5, "decimal")
         scale = data[offset]
         value = int.from_bytes(data[offset + 1 : offset + 5], "big", signed=True)
         return (scale, value), offset + 5
     if tag == "T":
         # timestamp: 64-bit POSIX seconds
+        _need(8, "timestamp")
         return int.from_bytes(data[offset : offset + 8], "big"), offset + 8
     if tag == "s":
         return decode_shortstr(data, offset)

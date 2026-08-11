@@ -47,21 +47,23 @@ Do not push directly to `main` or `development`.
 
 ## Quick start
 
+Requires [uv](https://docs.astral.sh/uv/). Python is pinned via `.python-version` (3.12).
+
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-python specs/specpp/check_sat.py
+uv sync --dev
+uv run python specs/specpp/check_sat.py
 cd specs/lean && lake build && cd ../..
-pytest -q
+uv run pytest -q
 ```
 
-CI and the commands above use **pip**. Optional local `uv run …` is fine;
-`uv.lock` is gitignored and not the supported CI lockfile.
+Maintainer tooling lives in the PEP 735 `dev` **dependency group** (`uv sync --dev`),
+not a package extra. Product extras for consumers: `claims`, `pkcs12`, `bench`
+(`uv sync --dev --extra claims`, or `pip install 'nuropb-rmq[claims]'`).
+Committed `uv.lock` is the supported lockfile for CI and local sync.
 
 ## Examples
 
-Runnable demos against local RabbitMQ (`pip install -e .`):
+Runnable demos against local RabbitMQ (`uv sync --dev` first):
 
 - [`examples/one_client_one_service/`](examples/one_client_one_service/) — mesh RPC,
   events, and registry discovery (`service.py`, then `client.py`)
@@ -75,24 +77,26 @@ Smoke all three locally: `./scripts/smoke_examples.sh` (probes `5672`/`5673`, or
 
 ## CI / gates
 
-GitHub Actions (`.github/workflows/ci.yml`) runs the same gates:
+GitHub Actions (`.github/workflows/ci.yml`) runs the same gates via uv:
 
 ```bash
-ruff check src tests
-python specs/specpp/check_sat.py
-pytest -q -m "not integration and not benchmark and not fuzz"
-HYPOTHESIS_PROFILE=ci pytest -q -m fuzz
-pip install -e ".[claims]" && pytest -q tests/patterns/test_context.py
+uv sync --dev
+uv lock --check
+uv run ruff check src tests
+uv run python specs/specpp/check_sat.py
+uv run pytest -q -m "not integration and not benchmark and not fuzz"
+HYPOTHESIS_PROFILE=ci uv run pytest -q -m fuzz
+uv sync --dev --extra claims && uv run pytest -q tests/patterns/test_context.py
 # with RabbitMQ on 5672:
-pytest -q -m integration
+uv run pytest -q -m integration
 (cd specs/lean && lake build)
 ```
 
 Claims-gated RPC tests:
 
 ```bash
-pip install -e ".[claims]"
-pytest -q tests/patterns/test_context.py tests/integration/test_mesh_claims_amqp.py
+uv sync --dev --extra claims
+uv run pytest -q tests/patterns/test_context.py tests/integration/test_mesh_claims_amqp.py
 ```
 
 Integration smoke (needs RabbitMQ; tries `5672` then `5673`, or set
@@ -156,7 +160,7 @@ CA / client cert / key can come from any of:
 |--------|--------|
 | File paths | `ca_file`, `cert_file`, `key_file` |
 | In-memory PEM | `ca_data`, `cert_data`, `key_data` (`bytes` or `str`) |
-| PKCS#12 | `pkcs12_file` or `pkcs12_data` (+ optional `pkcs12_password`); requires `pip install 'nuropb-rmq[pkcs12]'` |
+| PKCS#12 | `pkcs12_file` or `pkcs12_data` (+ optional `pkcs12_password`); requires `pip install 'nuropb-rmq[pkcs12]'` or `uv sync --extra pkcs12` |
 | Secrets hook | `tls_secrets` — async `SecretsProvider.get_tls_material()` or sync/async callable returning `TlsMaterial` |
 
 One source per slot (file **or** bytes; hook conflicts if the same slot is also set).
@@ -202,7 +206,8 @@ await server.start()
 ## Mesh + claims
 
 Broker permission profile **`mesh-bind-namespaced`**: bind/consume only under
-`<service>.*`. JWT claims use optional `pip install -e ".[claims]"`.
+`<service>.*`. JWT claims use optional `uv sync --dev --extra claims`
+(or `pip install -e ".[claims]"` / `pip install 'nuropb-rmq[claims]'`).
 
 Broker permission profile **`reply-publish-restricted`**: only authorized
 service identities may publish to `nr.reply.*` (forges otherwise). Ops
@@ -240,6 +245,6 @@ Exclusive Session reply queues stay auto-delete/ephemeral (not the work-queue pr
 ## Throughput vs pika
 
 ```bash
-pip install -e ".[bench]"
-python -m bench.compare --quick
+uv sync --dev --extra bench
+uv run python -m bench.compare --quick
 ```
