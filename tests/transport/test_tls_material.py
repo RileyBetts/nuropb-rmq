@@ -299,16 +299,17 @@ def _require_cryptography() -> None:
 
 def _make_pkcs12(tmp: Path, *, password: bytes | None, include_ca: bool) -> bytes:
     _require_cryptography()
+    import datetime
+
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.hazmat.primitives.serialization import pkcs12
     from cryptography.x509.oid import NameOID
-    import datetime
 
     ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test-ca")])
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     ca_cert = (
         x509.CertificateBuilder()
         .subject_name(ca_name)
