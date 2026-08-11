@@ -61,10 +61,17 @@ CI and the commands above use **pip**. Optional local `uv run …` is fine;
 
 ## Examples
 
-Runnable demo (one service + one client: mesh RPC, events, registry discovery):
+Runnable demos against local RabbitMQ (`pip install -e .`):
 
-[`examples/one_client_one_service/`](examples/one_client_one_service/) — start
-`service.py`, then `client.py` against local RabbitMQ.
+- [`examples/one_client_one_service/`](examples/one_client_one_service/) — mesh RPC,
+  events, and registry discovery (`service.py`, then `client.py`)
+- [`examples/vanilla_hello/`](examples/vanilla_hello/) — plain `AmqpConnection`
+  publish/consume on a durable queue
+- [`examples/vanilla_topic/`](examples/vanilla_topic/) — topic exchange pub/sub
+  (subscriber first, then publisher)
+
+Smoke all three locally: `./scripts/smoke_examples.sh` (probes `5672`/`5673`, or set
+`NUROPB_RMQ_PORT`).
 
 ## CI / gates
 
