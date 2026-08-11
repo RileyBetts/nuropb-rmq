@@ -1,0 +1,87 @@
+"""Unit tests for AMQP frame codec bounds checking."""
+
+from __future__ import annotations
+
+import pytest
+from hypothesis import given, settings, strategies as st
+
+from nuropb_rmq.transport.frame import (
+    DEFAULT_FRAME_MAX,
+    DEFAULT_MAX_TABLE_DEPTH,
+    AmqpCodecError,
+    Frame,
+    FrameType,
+    decode_frame,
+    decode_table,
+    encode_frame,
+    encode_table,
+)
+
+
+def test_roundtrip_method_frame() -> None:
+    payload = b"\x00\x0a\x00\x0a" + b"rest"
+    raw = encode_frame(Frame(FrameType.METHOD, 1, payload))
+    frame, nxt = decode_frame(raw)
+    assert frame.frame_type == FrameType.METHOD
+    assert frame.channel == 1
+    assert frame.payload == payload
+    assert nxt == len(raw)
+
+
+def test_rejects_oversize_length_before_accept() -> None:
+    # Craft header claiming huge size without providing payload
+    header = bytes([FrameType.METHOD]) + (0).to_bytes(2, "big") + (10_000_000).to_bytes(4, "big")
+    with pytest.raises(AmqpCodecError, match="exceeds frame_max"):
+        decode_frame(header + b"x" * 100, frame_max=131072)
+
+
+def test_rejects_deep_table_nesting() -> None:
+    # Build nested tables deeper than max
+    table: dict = {"a": {}}
+    cur = table["a"]
+    for i in range(DEFAULT_MAX_TABLE_DEPTH + 5):
+        cur["n"] = {}
+        cur = cur["n"]
+    with pytest.raises(AmqpCodecError, match="nesting exceeds"):
+        encode_table(table, max_depth=DEFAULT_MAX_TABLE_DEPTH)
+
+
+def test_table_roundtrip_shallow() -> None:
+    table = {"product": "nuropb-rmq", "capabilities": {"foo": True}}
+    encoded = encode_table(table)
+    decoded, end = decode_table(encoded)
+    assert end == len(encoded)
+    assert decoded["product"] == "nuropb-rmq"
+    assert decoded["capabilities"]["foo"] is True
+
+
+def test_heartbeat_frame() -> None:
+    raw = encode_frame(Frame(FrameType.HEARTBEAT, 0, b""))
+    frame, _ = decode_frame(raw)
+    assert frame.frame_type == FrameType.HEARTBEAT
+    assert frame.payload == b""
+
+
+@given(st.integers(min_value=DEFAULT_FRAME_MAX + 1, max_value=DEFAULT_FRAME_MAX * 4))
+@settings(max_examples=30)
+def test_inv6_pbt_oversize_length_rejected(claimed_size: int) -> None:
+    """Lean `decodeAccepted_reject_oversize` / inv6."""
+    header = (
+        bytes([FrameType.METHOD])
+        + (0).to_bytes(2, "big")
+        + claimed_size.to_bytes(4, "big")
+    )
+    with pytest.raises(AmqpCodecError, match="exceeds frame_max"):
+        decode_frame(header, frame_max=DEFAULT_FRAME_MAX)
+
+
+@given(st.integers(min_value=DEFAULT_MAX_TABLE_DEPTH + 1, max_value=DEFAULT_MAX_TABLE_DEPTH + 20))
+@settings(max_examples=20)
+def test_inv6_pbt_deep_nesting_rejected(depth: int) -> None:
+    table: dict = {}
+    cur = table
+    for _ in range(depth):
+        cur["n"] = {}
+        cur = cur["n"]
+    with pytest.raises(AmqpCodecError, match="nesting exceeds"):
+        encode_table(table, max_depth=DEFAULT_MAX_TABLE_DEPTH)

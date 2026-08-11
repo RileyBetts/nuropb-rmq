@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nuropb-rmq"
+version = "0.1.0"
+description = "Native Python AMQP 0-9-1 client for a RabbitMQ service mesh (Transport/Protocol foundation)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "nuropb-rmq contributors" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "z3-solver>=4.12", "hypothesis>=6.100"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "integration: requires a running RabbitMQ broker",
+]
+
+[tool.ruff]
+line-length = 100
