@@ -5,16 +5,17 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](CHANGELOG.md)
 
-Native Python **AMQP 0-9-1** client for RabbitMQ — no `pika` (or other AMQP
-client) at runtime. It implements connection/channel framing directly and layers
-nuropb-inspired **JSON-RPC 2.0** mesh patterns (RPC, events, service bind, claims)
-on that transport. Protocol and session behaviour are backed by SpeC++ CheckSat
-and Lean proofs, not only tests.
+Async-native Python **AMQP 0-9-1** client for RabbitMQ — built on `asyncio`, with
+no `pika` (or other AMQP client) at runtime. It implements connection/channel
+framing directly and layers nuropb-inspired **JSON-RPC 2.0** mesh patterns (RPC,
+events, service bind, claims) on that transport. Protocol and session behaviour
+are backed by SpeC++ CheckSat and Lean proofs, not only tests.
 
 Alpha: the public API may still change. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Features
 
+- Asyncio-first API (`await` connect, publish, consume, RPC)
 - Native AMQP transport: connect, channel, declare, publish, consume, ack
 - Session RPC with exclusive reply queues and correlation tracking
 - Event pub/sub (JSON-RPC notification shape) over topic/fanout
