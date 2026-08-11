@@ -24,11 +24,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/robertbetts/nuropb-rmq"
-Changelog = "https://github.com/robertbetts/nuropb-rmq/blob/main/CHANGELOG.md"
-Documentation = "https://github.com/robertbetts/nuropb-rmq#readme"
-Repository = "https://github.com/robertbetts/nuropb-rmq"
-Issues = "https://github.com/robertbetts/nuropb-rmq/issues"
+Homepage = "https://github.com/RileyBetts/nuropb-rmq"
+Changelog = "https://github.com/RileyBetts/nuropb-rmq/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/RileyBetts/nuropb-rmq#readme"
+Repository = "https://github.com/RileyBetts/nuropb-rmq"
+Issues = "https://github.com/RileyBetts/nuropb-rmq/issues"
 
 [project.optional-dependencies]
 dev = [

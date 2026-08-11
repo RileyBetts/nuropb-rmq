@@ -21,6 +21,28 @@ SpeC++ CheckSat lives in [`specs/specpp/`](specs/specpp/); Lean proofs live in
 See [`CHANGELOG.md`](CHANGELOG.md) for the **0.1.0** release notes and GitHub
 tag checklist (PyPI publish is not automated).
 
+## Branching
+
+Long-lived branches: **`development`** (integration) and **`main`** (stable/release).
+Both are protected: changes land via pull request with required CI.
+
+```text
+feature/<name>  →  development  →  main
+```
+
+1. Update and branch from `development`:
+
+```bash
+git checkout development && git pull
+git checkout -b feature/my-change
+```
+
+2. Open a PR targeting **`development`** (squash merge preferred).
+3. When `development` is ready to release, open a PR **`development` → `main`**
+   (merge commit preferred so the integration boundary is visible).
+
+Do not push directly to `main` or `development`.
+
 ## Quick start
 
 ```bash
