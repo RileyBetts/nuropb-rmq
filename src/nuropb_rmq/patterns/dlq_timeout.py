@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from nuropb_rmq.config.queue_profile import DLQ_TERMINAL, QueueProfile
 from nuropb_rmq.patterns.envelope import encode_error
 from nuropb_rmq.patterns.errors import REQUEST_TIMEOUT, make_error_data
 from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig
@@ -17,18 +18,20 @@ class DlqTimeoutProcessor:
         *,
         dlq_name: str,
         channel_id: int = 1,
+        queue_profile: QueueProfile | None = None,
     ) -> None:
         self.conn = AmqpConnection(config)
         self.dlq_name = dlq_name
         self.channel_id = channel_id
+        self.queue_profile = queue_profile or DLQ_TERMINAL
         self._task: asyncio.Task[None] | None = None
         self._running = False
 
     async def start(self) -> None:
         await self.conn.connect()
         await self.conn.open_channel(self.channel_id)
-        await self.conn.queue_declare(
-            self.channel_id, self.dlq_name, durable=False, auto_delete=True
+        await self.conn.queue_declare_profile(
+            self.channel_id, self.dlq_name, self.queue_profile
         )
         await self.conn.basic_consume(self.channel_id, self.dlq_name)
         self._running = True

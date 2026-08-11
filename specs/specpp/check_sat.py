@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""SpeC++ CheckSat gate for Protocol + Session clauses.
+"""SpeC++ CheckSat gate for Protocol + Session + Pattern + Config clauses.
 
-Runs Z3 against SMT-LIB specs under specs/specpp/{Protocol,Session}/.
+Runs Z3 against SMT-LIB specs under specs/specpp/.
 Exit 0 only if every expected-sat file is sat and every expected-unsat
 file is unsat. UNKNOWN is a hard failure (no waiver).
 """
@@ -24,6 +24,8 @@ CHECKS: list[tuple[str, str, str]] = [
     ("Session", "phase2_reconnect_negatives.smt2", "unsat"),
     ("Pattern", "mesh_claims.smt2", "sat"),
     ("Pattern", "mesh_claims_negatives.smt2", "unsat"),
+    ("Config", "queue_profile.smt2", "sat"),
+    ("Config", "queue_profile_negatives.smt2", "unsat"),
 ]
 
 

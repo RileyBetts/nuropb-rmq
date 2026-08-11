@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from nuropb_rmq.config.queue_profile import QueueProfile, durable_at_least_once
 from nuropb_rmq.patterns.context import AuthConfig, attach_claims_headers
 from nuropb_rmq.patterns.envelope import (
     decode_request,
@@ -31,8 +32,15 @@ Handler = Callable[[str, Any], Awaitable[Any] | Any]
 
 
 class RpcClient:
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        queue_profile: QueueProfile | None = None,
+    ) -> None:
         self.session = session
+        # Requests to durable work queues must be persistent when profile says so.
+        self.queue_profile = queue_profile or durable_at_least_once()
 
     async def request(
         self,
@@ -80,6 +88,7 @@ class RpcClient:
             exchange=exchange,
             routing_key=target,
             properties=props,
+            queue_profile=self.queue_profile,
         )
         try:
             msg: IncomingMessage = await self.session.wait_reply(rid, fut)
@@ -116,6 +125,7 @@ class RpcServer:
         auth: AuthConfig | None = None,
         conn: AmqpConnection | None = None,
         declare_queue: bool = True,
+        queue_profile: QueueProfile | None = None,
     ) -> None:
         self.conn = conn if conn is not None else AmqpConnection(config)
         self._owns_conn = conn is None
@@ -124,6 +134,9 @@ class RpcServer:
         self.channel_id = channel_id
         self.auth = auth
         self._declare_queue = declare_queue
+        self.queue_profile = queue_profile or durable_at_least_once(
+            dead_letter_exchange=f"nr.dlx.{queue}",
+        )
         self._task: asyncio.Task[None] | None = None
         self._running = False
         self._connected = False
@@ -146,6 +159,7 @@ class RpcServer:
             auth=auth,
             conn=mesh.conn,
             declare_queue=False,
+            queue_profile=mesh.queue_profile,
         )
 
     async def start(self) -> None:
@@ -155,7 +169,9 @@ class RpcServer:
         elif not self.conn.sm.is_open:
             raise RuntimeError("shared connection is not open")
         if self._declare_queue:
-            await self.conn.queue_declare(self.channel_id, self.queue, durable=False)
+            await self.conn.queue_declare_profile(
+                self.channel_id, self.queue, self.queue_profile
+            )
         await self.conn.basic_consume(self.channel_id, self.queue)
         self._connected = True
         self._running = True
@@ -233,6 +249,7 @@ class RpcServer:
             if rid:
                 props["correlation_id"] = rid
             # Write reply then ack; single drain at the end of the RT.
+            # Exclusive reply queues are transient — do not apply work-queue profile.
             await self.conn.basic_publish(
                 self.channel_id,
                 out,

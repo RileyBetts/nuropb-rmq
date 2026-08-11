@@ -1,24 +1,20 @@
 # Security Review: nuropb-rmq (Native AMQP Service Mesh)
 
-**Status:** Design-time review. No implementation exists yet — findings are
-framed as invariants to fold into the SpeC++/Lean pipeline, required
-configuration/permission profiles, and concrete fuzz/test obligations for
-when implementation starts. This document should be revisited each time
-`architecture.md` gains a new "Decided" item, since new decisions can
-introduce new attack surface the same way any other design change can.
+**Status:** Living review against the implemented library. Core Transport /
+Protocol / Session / Pattern paths exist under `src/nuropb_rmq/`; findings here
+remain invariants, deployment prerequisites, and test/fuzz obligations. Revisit
+when `architecture.md` gains new Decided items.
 
 **Relationship to the other project docs:** `project-intent.md` states *why*
 and the project's goals (trust/robustness/throughput); `architecture.md`
 states *what's decided*. This document states *what could go wrong and what
-must be checked before those decisions are treated as final* — where a
-finding here represents a genuine gap in the current design (not just an
-implementation-time reminder), it should also be reflected as an
-"Open question" or invariant entry in `architecture.md` itself, so it's
-visible to anyone reading that doc without also reading this one.
+must be checked* — where a finding represents a genuine design gap, it should
+also appear in the Decision ledger in `architecture.md`.
 
-Gaps from this review have already been folded into `architecture.md`
-(Open questions / Decision ledger). Remaining work is to mark each gap
-**Decided** there — not to maintain a separate patch document.
+Gaps from this review have largely been folded into `architecture.md`.
+Remaining soft follow-ups: dedicated frame fuzz corpus in CI, TTL
+anti-enumeration timing tests, and management-API permission audits
+(optional; broker ACL remains authoritative).
 
 ---
 

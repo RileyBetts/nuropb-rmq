@@ -20,5 +20,7 @@ python specs/specpp/check_sat.py
 | `Session/phase2_reconnect_negatives.smt2` | **unsat** |
 | `Pattern/mesh_claims.smt2` | **sat** |
 | `Pattern/mesh_claims_negatives.smt2` | **unsat** |
+| `Config/queue_profile.smt2` | **sat** |
+| `Config/queue_profile_negatives.smt2` | **unsat** |
 
 **UNKNOWN is a hard failure** (no waiver).

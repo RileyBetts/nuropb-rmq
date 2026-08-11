@@ -13,6 +13,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from nuropb_rmq.config.queue_profile import QueueProfile, durable_at_least_once
 from nuropb_rmq.patterns.errors import BIND_REFUSED, RpcError, make_error_data
 from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig
 
@@ -72,6 +73,7 @@ class MeshService:
         exchange: str = DEFAULT_MESH_EXCHANGE,
         queue: str | None = None,
         channel_id: int = 1,
+        queue_profile: QueueProfile | None = None,
     ) -> None:
         if not methods:
             raise ValueError("methods must be non-empty")
@@ -81,6 +83,9 @@ class MeshService:
         self.exchange = exchange
         self.channel_id = channel_id
         self.queue_name = queue or f"nr.svc.{identity.service}"
+        self.queue_profile = queue_profile or durable_at_least_once(
+            dead_letter_exchange=f"nr.dlx.{identity.service}",
+        )
         self.routing_keys: list[str] = []
         for method in methods:
             key = identity.routing_key(method)
@@ -108,14 +113,13 @@ class MeshService:
             self.channel_id,
             self.exchange,
             exchange_type="direct",
+            durable=True,
             auto_delete=False,
         )
-        self.queue = await self.conn.queue_declare(
+        self.queue = await self.conn.queue_declare_profile(
             self.channel_id,
             self.queue_name,
-            durable=False,
-            exclusive=False,
-            auto_delete=True,
+            self.queue_profile,
         )
         for key in self.routing_keys:
             self.assert_bind_allowed(key)

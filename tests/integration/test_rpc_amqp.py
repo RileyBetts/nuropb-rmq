@@ -43,13 +43,14 @@ async def _declare_ttl_request_queue(queue: str, dlx: str, dlq: str, ttl_ms: int
     conn = AmqpConnection(_cfg())
     await conn.connect()
     ch = await conn.open_channel(1)
-    await conn.exchange_declare(ch, dlx, exchange_type="fanout", auto_delete=True)
-    await conn.queue_declare(ch, dlq, exclusive=False, auto_delete=True)
+    await conn.exchange_declare(ch, dlx, exchange_type="fanout", durable=True, auto_delete=False)
+    await conn.queue_declare(ch, dlq, durable=True, auto_delete=False)
     await conn.queue_bind(ch, dlq, dlx)
     await conn.queue_declare(
         ch,
         queue,
-        auto_delete=True,
+        durable=True,
+        auto_delete=False,
         arguments={"x-message-ttl": ttl_ms, "x-dead-letter-exchange": dlx},
     )
     await conn.close()

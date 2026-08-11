@@ -10,11 +10,13 @@ SpeC++ CheckSat lives in [`specs/specpp/`](specs/specpp/); Lean proofs live in
 - Transport + Protocol + Session/RPC + events + mesh + claims
 - Reconnect: fail-fast `CONNECTION_LOST`; `Session.reconnect` / `MeshService.rebind`
   (no in-flight park-and-retry)
+- Named queue profiles (`durable-at-least-once` default) + heartbeat watchdog
 - Lean Phase 1, 1b, Phase 2, and Pattern (mesh + claims) proved
-- SpeC++ Protocol / Session / Pattern / Phase 2 CheckSat
+- SpeC++ Protocol / Session / Pattern / Phase 2 / Config CheckSat
 - Throughput harness vs pika under [`bench/`](bench/) (optional `[bench]` extra)
 - CI: SpeC++ + unit + claims + RabbitMQ integration + Lean (`lake build`)
 - AMQPS: `tls-verify-full` smoke + mTLS/`EXTERNAL` opt-in harness
+- Public imports: `from nuropb_rmq import Session, RpcClient, ...` (see `api.py`)
 
 ## Quick start
 
@@ -151,6 +153,24 @@ await server.start()
 
 Broker permission profile **`mesh-bind-namespaced`**: bind/consume only under
 `<service>.*`. JWT claims use optional `pip install -e ".[claims]"`.
+
+Broker permission profile **`reply-publish-restricted`**: only authorized
+service identities may publish to `nr.reply.*` (forges otherwise). Ops
+checklist: [`scripts/reply-publish-restricted.md`](scripts/reply-publish-restricted.md).
+
+## Queue profiles
+
+Work queues default to **`durable-at-least-once`** (quorum + persistent +
+TTL/DLX + `x-delivery-limit`). Publish refuses non-persistent messages on
+durable profiles. See `nuropb_rmq.config.QueueProfile`.
+
+```python
+from nuropb_rmq import RpcServer, durable_classic
+
+server = RpcServer(cfg, queue="orders", handler=handler, queue_profile=durable_classic())
+```
+
+Exclusive Session reply queues stay auto-delete/ephemeral (not the work-queue profile).
 
 ## Throughput vs pika
 

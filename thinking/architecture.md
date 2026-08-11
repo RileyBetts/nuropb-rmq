@@ -39,7 +39,7 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Correlation id | One Session value; AMQP `correlation_id` + JSON-RPC `id`; string ≤255 octets; UUID4 hex default; reject invalid |
 | Caller-supplied id collision | Reject request if id collides with any outstanding id in the same correlation table (never regenerate) |
 | Reply routing | Per-connection exclusive auto-delete reply queue (not direct reply-to) |
-| Reply-queue publish auth | Broker-native RabbitMQ permission profile; deployment prerequisite; library documents + validates profile shape, does not replace broker ACL |
+| Reply-queue publish auth | Broker-native RabbitMQ permission profile; docs + ops checklist in `scripts/reply-publish-restricted.md` |
 | Claims location | AMQP headers only; JSON-RPC body stays spec-pure |
 | Claims trust model | Signed JWT bearer in headers; verify signature; require `exp`; bind to request via `method` + `jti` tied to correlation id; fail-closed |
 | Mesh-binding authorization | Broker-native vhost/topic permission profile; no app-level registration authority in v1 |
@@ -50,14 +50,14 @@ Single status view. Detail and rationale live in the sections linked by name.
 | mTLS / SASL | Negotiate from broker ads; support `EXTERNAL` when offered; never assume mTLS ⇒ passwordless |
 | Cert sourcing | **Done (PEM)** — files + in-memory bytes + secrets-manager hook → `TlsMaterial`; PKCS#12 deferred |
 | Cert rotation | Re-invoke secrets hook on **new connection only**; mid-connection cert expiry → orderly reconnect with fresh material |
-| Config strategy | Validated named profiles; durable+persistent enforced together |
-| Default queue profile | `durable-at-least-once`: quorum + persistent + TTL + DLX + `x-delivery-limit` |
+| Config strategy | **Done** — validated named queue profiles; durable+persistent enforced together |
+| Default queue profile | **Done** — `durable-at-least-once`: quorum + persistent + TTL + DLX + `x-delivery-limit` |
 | Spec consistency | SpeC++ SMT `CheckSat` before Lean |
 | Protocol SM SpeC++ CheckSat | **Passed** — Protocol + Session under `specs/specpp/` (`python specs/specpp/check_sat.py`) |
 | Lean Phase 1 Protocol SM | **Done** — `specs/lean/` proves Protocol invariants 1–7 (`lake build`); correspondence in `specs/lean/CORRESPONDENCE.md`; hypothesis PBTs under `tests/protocol/` + `tests/transport/` |
 | Session SpeC++ CheckSat | **Passed** — `specs/specpp/Session/correlation.smt2` (sat) + negatives (unsat) |
 | Lean Phase 1b Session correlation | **Done** — `NuropbRmq.Session.{Correlation,Invariants}`; id format, dual-accessor, collision reject, first-reply-wins, reply-queue brackets table |
-| Lean↔Python (v1) | SpeC++ → Lean model → property-based tests + manual correspondence; no code extraction |
+| Lean↔Python (v1) | SpeC++ → Lean model → property-based tests + manual correspondence; no code extraction; **re-audited 2026-08-11** (`specs/lean/CORRESPONDENCE.md` Alignment findings) |
 | TTL anti-enumeration | **Goal**: DLQ-synthesized timeout and “no such method” must not be distinguishable by timing/content alone across the public mesh API |
 | Claims compare | Constant-time (`hmac.compare_digest` or equivalent) |
 | Sequencing step 1 (Transport+Protocol) | **Done** — native AMQP connect/channel/declare/publish/consume/ack in `src/nuropb_rmq/` (no `pika`) |
@@ -74,6 +74,9 @@ Single status view. Detail and rationale live in the sections linked by name.
 | TLS / brew AMQPS verify-full | **Done** — `scripts/gen_amqps_certs.sh`, SSL-context unit tests, opt-in `tests/integration/test_amqps_smoke.py` (PLAIN over TLS, `tls-verify-full`) |
 | mTLS / SASL EXTERNAL smoke | **Done** — client cert in cert script; opt-in `test_amqps_mtls_smoke.py`; SASL selection unit tests; never assume mTLS ⇒ passwordless |
 | Cert sourcing (PEM) | **Done** — `tls_material.py`: file / bytes / `tls_secrets` hook; re-resolve each `connect()`; EXTERNAL from any cert source; key redaction in `repr` |
+| Queue profiles | **Done** — `config/queue_profile.py`; RpcServer/Mesh default `durable-at-least-once`; SpeC++ Config CheckSat |
+| Heartbeat watchdog | **Done** — client heartbeat send + missed-peer (2× interval) → `CONNECTION_LOST` |
+| Reply-publish docs | **Done** — `scripts/reply-publish-restricted.md` + README |
 
 ### Deferred (explicit)
 
@@ -639,9 +642,9 @@ tests/
    SpeC++ Phase 2 CheckSat; Lean `DeadLetterTimeout` + `Reconnect` proofs.
 
 **v1 core sequencing complete.** Release CI, Pattern Lean, AMQPS verify-full,
-mTLS EXTERNAL, and PEM cert sourcing (files/bytes/secrets hook) are in place.
-Remaining deferred items: in-flight park-and-retry, app-level mesh registry,
-PKCS#12.
+mTLS EXTERNAL, PEM cert sourcing, named queue profiles, and heartbeat watchdog
+are in place. Remaining deferred items: in-flight park-and-retry, app-level
+mesh registry, PKCS#12.
 
 **Throughput:** `bench/` compares nuropb-rmq vs pika for raw publish/consume,
 RPC exclusive reply queue, pika `amq.rabbitmq.reply-to`, and fanout events.

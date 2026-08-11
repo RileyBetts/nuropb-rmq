@@ -11,6 +11,24 @@ requires-python = ">=3.11"
 license = "Apache-2.0"
 authors = [{ name = "nuropb-rmq contributors" }]
 dependencies = []
+keywords = ["amqp", "rabbitmq", "rpc", "json-rpc", "service-mesh"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: System :: Distributed Computing",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/robertbetts/nuropb-rmq"
+Changelog = "https://github.com/robertbetts/nuropb-rmq/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/robertbetts/nuropb-rmq#readme"
+Repository = "https://github.com/robertbetts/nuropb-rmq"
+Issues = "https://github.com/robertbetts/nuropb-rmq/issues"
 
 [project.optional-dependencies]
 dev = [

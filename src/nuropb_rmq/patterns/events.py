@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
+from nuropb_rmq.config.queue_profile import TRANSIENT_FAST_PATH, QueueProfile
 from nuropb_rmq.patterns.envelope import decode_notification, encode_notification
 from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig, IncomingMessage
 
@@ -23,11 +24,13 @@ class EventPublisher:
         exchange: str,
         exchange_type: ExchangeType = "topic",
         channel_id: int = 1,
+        queue_profile: QueueProfile | None = None,
     ) -> None:
         self.conn = AmqpConnection(config)
         self.exchange = exchange
         self.exchange_type = exchange_type
         self.channel_id = channel_id
+        self.queue_profile = queue_profile or TRANSIENT_FAST_PATH
         self._started = False
 
     async def start(self) -> None:
@@ -57,6 +60,7 @@ class EventPublisher:
             exchange=self.exchange,
             routing_key=key,
             properties={"content_type": "application/json"},
+            queue_profile=self.queue_profile,
         )
 
 

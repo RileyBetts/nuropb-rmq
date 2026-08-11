@@ -6,10 +6,12 @@ import asyncio
 import os
 import ssl
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from nuropb_rmq.config.queue_profile import QueueProfile
 from nuropb_rmq.protocol import methods as m
 from nuropb_rmq.protocol.channel_sm import ChannelStateMachine
 from nuropb_rmq.protocol.connection_sm import (
@@ -119,6 +121,9 @@ class AmqpConnection:
         self.frame_max = self.config.frame_max
         # Resolved on each connect(); used for SASL EXTERNAL (any cert source).
         self._tls_material: TlsMaterial | None = None
+        self._heartbeat_sec: int = 0
+        self._last_peer_frame_at: float = 0.0
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     def set_on_loss(self, callback: Callable[[BaseException], None] | None) -> None:
         """Register callback invoked once when the connection is lost."""
@@ -130,6 +135,10 @@ class AmqpConnection:
 
     async def connect(self) -> None:
         # Secrets hook (if any) runs here — once per new TCP/TLS connection (rotation).
+        # Invariant 7: single heartbeat policy, Lean-validated range 1..60.
+        hb_cfg = int(self.config.heartbeat)
+        if hb_cfg <= 0 or hb_cfg > 60:
+            raise ValueError(f"heartbeat must be 1..60, got {hb_cfg}")
         ssl_ctx = None
         self._tls_material = None
         if self.config.tls:
@@ -177,9 +186,11 @@ class AmqpConnection:
         if frame_max == 0:
             frame_max = self.config.frame_max
         self.frame_max = min(frame_max, self.config.frame_max)
-        heartbeat = min(int(tune.args.get("heartbeat") or self.config.heartbeat), self.config.heartbeat)
+        heartbeat = min(int(tune.args.get("heartbeat") or hb_cfg), hb_cfg)
         if heartbeat <= 0:
-            heartbeat = self.config.heartbeat
+            heartbeat = hb_cfg
+        # Cap at Lean inv7 upper bound even if broker advertises higher.
+        heartbeat = min(heartbeat, 60)
         self.sm.assert_can_send_connection_method(m.CONNECTION_TUNE_OK)
         await self._send_method(
             0,
@@ -202,6 +213,52 @@ class AmqpConnection:
         self.sm.on_connection_open_sent()
         await self._expect(0, m.CONNECTION, m.CONNECTION_OPEN_OK)
         self.sm.on_connection_open_ok()
+        self._start_heartbeat(heartbeat)
+
+    def _start_heartbeat(self, heartbeat: int) -> None:
+        """Send heartbeats and fail the connection if the peer goes silent."""
+        self._stop_heartbeat()
+        self._heartbeat_sec = max(0, int(heartbeat))
+        if self._heartbeat_sec <= 0:
+            return
+        self._last_peer_frame_at = time.monotonic()
+        self._heartbeat_task = asyncio.create_task(
+            self._heartbeat_loop(), name="amqp-heartbeat"
+        )
+
+    def _stop_heartbeat(self) -> None:
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+            self._heartbeat_task = None
+
+    def _note_peer_frame(self) -> None:
+        self._last_peer_frame_at = time.monotonic()
+
+    async def _heartbeat_loop(self) -> None:
+        interval = self._heartbeat_sec
+        # Check twice per interval; miss threshold is 2× negotiated heartbeat.
+        sleep_for = max(interval / 2.0, 0.05)
+        try:
+            while not self._closed and self._lost_exc is None:
+                await asyncio.sleep(sleep_for)
+                if self._closed or self._lost_exc is not None:
+                    return
+                silent_for = time.monotonic() - self._last_peer_frame_at
+                if silent_for > interval * 2:
+                    self._notify_loss(ConnectionLost("heartbeat timeout"))
+                    if self._writer is not None:
+                        try:
+                            self._writer.close()
+                        except Exception:
+                            pass
+                    return
+                try:
+                    await self._send_frame(Frame(FrameType.HEARTBEAT, 0, b""))
+                except Exception as exc:
+                    self._notify_loss(exc)
+                    return
+        except asyncio.CancelledError:
+            raise
 
     def _build_ssl_context(self, material: TlsMaterial) -> ssl.SSLContext:
         profile = self.config.tls_profile
@@ -310,6 +367,48 @@ class AmqpConnection:
         ok = await self._expect(channel_id, m.QUEUE, m.QUEUE_DECLARE_OK)
         return str(ok.args["queue"])
 
+    async def ensure_profile_dlx(self, channel_id: int, profile: QueueProfile) -> None:
+        """Declare the profile's dead-letter exchange when configured."""
+        if not profile.requires_dlx or profile.dead_letter_exchange is None:
+            return
+        await self.exchange_declare(
+            channel_id,
+            profile.dead_letter_exchange,
+            exchange_type="topic",
+            durable=True,
+            auto_delete=False,
+        )
+
+    async def queue_declare_profile(
+        self,
+        channel_id: int,
+        queue: str,
+        profile: QueueProfile,
+        *,
+        exclusive: bool = False,
+        auto_delete: bool | None = None,
+    ) -> str:
+        """Declare a queue using a validated :class:`QueueProfile`."""
+        if exclusive and profile.queue_type == "quorum":
+            raise ValueError("quorum queues cannot be exclusive")
+        if auto_delete is None:
+            auto_delete = not profile.durable
+        if auto_delete and profile.queue_type == "quorum":
+            raise ValueError("quorum queues cannot be auto-delete")
+        if auto_delete and profile.durable:
+            raise ValueError(
+                f"profile {profile.name!r}: durable queues must not be auto_delete"
+            )
+        await self.ensure_profile_dlx(channel_id, profile)
+        return await self.queue_declare(
+            channel_id,
+            queue,
+            durable=profile.durable,
+            exclusive=exclusive,
+            auto_delete=auto_delete,
+            arguments=profile.declare_arguments(),
+        )
+
     async def exchange_declare(
         self,
         channel_id: int,
@@ -366,9 +465,13 @@ class AmqpConnection:
         routing_key: str = "",
         properties: dict[str, Any] | None = None,
         drain: bool = True,
+        queue_profile: QueueProfile | None = None,
     ) -> None:
         ch = self._channels[channel_id]
         ch.assert_open_for_ops()
+        props = properties
+        if queue_profile is not None:
+            props = queue_profile.apply_publish_properties(properties)
         # Coalesce method + content-header + body into one write burst.
         self._write_frame(
             Frame(
@@ -387,7 +490,7 @@ class AmqpConnection:
                 ),
             )
         )
-        header = encode_content_header(class_id=m.BASIC, body_size=len(body), properties=properties)
+        header = encode_content_header(class_id=m.BASIC, body_size=len(body), properties=props)
         self._write_frame(Frame(FrameType.HEADER, channel_id, header))
         self._write_frame(Frame(FrameType.BODY, channel_id, body))
         if drain:
@@ -445,6 +548,7 @@ class AmqpConnection:
     async def force_drop(self) -> None:
         """Abruptly drop the TCP connection (tests / simulated network loss)."""
         self._closed = True
+        self._stop_heartbeat()
         if self._writer is not None:
             self._writer.close()
             try:
@@ -480,6 +584,7 @@ class AmqpConnection:
         if self._closed:
             return
         self._closed = True
+        self._stop_heartbeat()
         try:
             if self.sm.is_open and self._writer is not None:
                 self.sm.begin_close()
@@ -554,8 +659,8 @@ class AmqpConnection:
                             break
                         self.sm.reject(str(exc))
                     del self._buffer[:nxt]
+                    self._note_peer_frame()
                     if frame.frame_type == FrameType.HEARTBEAT:
-                        await self._send_frame(Frame(FrameType.HEARTBEAT, 0, b""))
                         continue
                     if frame.frame_type == FrameType.METHOD:
                         method = decode_method(frame.payload)
