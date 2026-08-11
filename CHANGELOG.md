@@ -10,6 +10,8 @@ All notable changes to this project are documented in this file.
   optional `[pkcs12]` extra (`cryptography`); normalizes to PEM `TlsMaterial`
 - Optional AMQP mesh discovery registry (`nr.mesh.registry` fanout):
   `MeshService(announce=True)`, `MeshRegistryPublisher` / `MeshRegistryViewer`
+- Example `examples/one_client_one_service/` — one client + one service (RPC, events,
+  registry discovery)
 
 ## 0.1.0 — 2026-08-11
 
