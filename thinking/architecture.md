@@ -836,7 +836,7 @@ Cross-check the Decision ledger at the top of this document for status.
   - Private key material never appears in logs, `repr`, or exception
     messages.
 - **Throughput benchmarking — done.** Harness under [`bench/`](../bench/);
-  install `pip install -e ".[bench]"` (pulls `pika` for comparisons only).
+  install `uv sync --dev --extra bench` (pulls `pika` for comparisons only).
   Run `python -m bench.compare` (or `--quick`). Workloads: raw
   publish/consume, RPC exclusive reply queue (both libraries), pika-only
   `amq.rabbitmq.reply-to`, fanout notifications (N=1 and N=3). Reports
