@@ -9,9 +9,12 @@ live in [`thinking/`](thinking/). SpeC++ CheckSat lives in
 - Transport + Protocol: connect, channel, declare, publish/consume/ack
 - Session + JSON-RPC RPC (exclusive reply queue, DLQ timeout path)
 - Events/pub-sub: JSON-RPC notifications over topic/fanout
-- Lean Phase 1 + Phase 1b (Protocol SM + Session correlation) proved
+- Mesh: namespaced `service.method` bind (`MeshService`); broker profile
+  `mesh-bind-namespaced` (documented; ACL is deployment-owned)
+- Claims: JWT in AMQP headers `nr.claims` / `nr.claims_typ` (optional `[claims]`)
+- Lean Phase 1 + Phase 1b proved; SpeC++ Protocol/Session/Pattern CheckSat
 - Throughput harness vs pika under [`bench/`](bench/) (optional `[bench]` extra)
-- Mesh / claims not implemented yet
+- Reconnect / Lean Phase 2 not implemented yet
 
 ## Quick start
 
@@ -24,6 +27,13 @@ cd specs/lean && lake build && cd ../..
 pytest -q
 ```
 
+Claims-gated RPC tests:
+
+```bash
+pip install -e ".[claims]"
+pytest -q tests/patterns/test_context.py tests/integration/test_mesh_claims_amqp.py
+```
+
 Integration smoke (needs RabbitMQ; tries `5672` then `5673`, or set
 `NUROPB_RMQ_HOST` / `NUROPB_RMQ_PORT`):
 
@@ -31,14 +41,31 @@ Integration smoke (needs RabbitMQ; tries `5672` then `5673`, or set
 pytest -q -m integration
 ```
 
-Covers raw AMQP, RPC request/reply + DLQ timeout, and event fanout/topic.
+Covers raw AMQP, RPC + DLQ timeout, events, mesh RPC, and claims fail-closed.
 
 Formal gates:
 
 ```bash
-python specs/specpp/check_sat.py   # SpeC++ Protocol + Session SMT
+python specs/specpp/check_sat.py   # SpeC++ Protocol + Session + Pattern
 (cd specs/lean && lake build)      # Lean Phase 1 + Phase 1b proofs
 ```
+
+## Mesh + claims
+
+Broker permission profile **`mesh-bind-namespaced`**: the AMQP user may only
+bind/consume under the service’s `<service>.*` routing keys. The library
+refuses out-of-namespace binds client-side; it does not replace broker ACL.
+
+```python
+from nuropb_rmq.patterns import MeshService, ServiceIdentity, RpcServer, AuthConfig
+
+mesh = MeshService(identity=ServiceIdentity("orders"), methods=["ping"])
+await mesh.start()
+server = RpcServer.from_mesh(mesh, handler=handler, auth=AuthConfig(jwt_secret=...))
+```
+
+JWT verification needs `pip install -e ".[claims]"` (PyJWT + cryptography).
+Tokens travel only in AMQP headers — never in the JSON-RPC body.
 
 ## Throughput vs pika
 
@@ -47,11 +74,6 @@ runtime dependency of `nuropb_rmq`.
 
 ```bash
 pip install -e ".[bench]"
-python -m bench.compare --quick          # small matrix
-python -m bench.compare                  # full matrix (sizes 64/1k/16k, conc 1/8)
-pytest -q -m benchmark                   # small-count harness smoke
+python -m bench.compare --quick
+pytest -q -m benchmark
 ```
-
-Reports land in `bench/results/*.json` with msgs/sec and latency p50/p99.
-Scenarios: raw publish/consume, RPC exclusive reply queue, pika
-`amq.rabbitmq.reply-to`, and fanout events.

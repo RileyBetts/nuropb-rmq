@@ -65,15 +65,17 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Sequencing step 3 (Session+RPC) | **Done** — exclusive reply queue, correlation table, JSON-RPC client/server, DLQ timeout path |
 | Sequencing step 4 (Lean Phase 1b) | **Done** — Session correlation proofs |
 | Sequencing step 5 (Events/pub-sub) | **Done** — JSON-RPC notifications over topic/fanout (`patterns/events.py`) |
+| Sequencing step 6 (Mesh + claims) | **Done** — namespaced mesh bind + JWT `nr.claims` on RPC; SpeC++ Pattern CheckSat; next is Phase 2 reconnect |
 | Throughput benchmark harness | **Done** — `bench/` compares nuropb-rmq vs pika (optional `[bench]` extra); exclusive reply-queue vs `amq.rabbitmq.reply-to` measured, default unchanged |
 
 ### Deferred (explicit)
 
 | Item | Why deferred |
 |---|---|
-| Phase 2 reconnect/ordering Lean proofs | After stable Session+RPC implementation |
+| Phase 2 reconnect/ordering Lean proofs | After reconnect implementation exists to model |
 | App-level mesh registration authority | Out of v1; broker permissions are the hard gate |
 | TLS integration against local brew AMQPS | PLAIN smoke verified; TLS code path + SM invariant covered in unit tests; broker AMQPS needs deployed trust anchors for full verify-full smoke |
+| Large-payload single-stream RPC throughput | Bench noted 16KB·c1 RPC outlier vs pika; not a sequencing blocker |
 
 ## Layering overview
 
@@ -622,10 +624,12 @@ tests/
    `tests/session/`.
 5. **Events/pub-sub pattern** — **DONE.** JSON-RPC notification shape over
    topic/fanout (`EventPublisher` / `EventSubscriber`); unit + integration smoke.
-6. **Mesh registration/binding + context/claims propagation** *(next)*: full
-   nuropb pattern parity.
-7. **Lean Phase 2**: reconnect/ordering/delivery guarantees, once there's a
-   stable implementation to model.
+6. **Mesh registration/binding + context/claims** — **DONE.** `MeshService` /
+   `ServiceIdentity` namespaced binds; JWT claims in `nr.claims` headers via
+   optional `[claims]` extra; wired into `RpcClient`/`RpcServer`; SpeC++ Pattern
+   CheckSat.
+7. **Lean Phase 2 / reconnect** *(next)*: reconnect/rebind implementation then
+   ordering/delivery Lean proofs.
 
 **Throughput:** `bench/` compares nuropb-rmq vs pika for raw publish/consume,
 RPC exclusive reply queue, pika `amq.rabbitmq.reply-to`, and fanout events.

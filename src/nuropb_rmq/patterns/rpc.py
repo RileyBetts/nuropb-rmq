@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from nuropb_rmq.patterns.context import AuthConfig, attach_claims_headers
 from nuropb_rmq.patterns.envelope import (
     decode_request,
     decode_response,
@@ -21,6 +22,7 @@ from nuropb_rmq.patterns.errors import (
     RpcError,
     make_error_data,
 )
+from nuropb_rmq.patterns.mesh import MeshService
 from nuropb_rmq.session.ids import IdCollisionError, InvalidIdError
 from nuropb_rmq.session.session import Session
 from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig, IncomingMessage
@@ -34,12 +36,19 @@ class RpcClient:
 
     async def request(
         self,
-        queue: str,
+        target: str,
         method: str,
         params: Any = None,
         *,
         request_id: str | None = None,
+        exchange: str = "",
+        claims_token: str | None = None,
     ) -> Any:
+        """Publish a JSON-RPC request.
+
+        ``target`` is the default-exchange routing key (queue name) when
+        ``exchange`` is empty, or the mesh routing key when ``exchange`` is set.
+        """
         if not self.session.reply_queue_open or self.session.reply_queue is None:
             raise RuntimeError("session not started")
         try:
@@ -58,15 +67,19 @@ class RpcClient:
             ) from exc
 
         body = encode_request(method, params, rid)
+        props: dict[str, Any] = {
+            "content_type": "application/json",
+            "correlation_id": rid,
+            "reply_to": self.session.reply_queue,
+        }
+        if claims_token is not None:
+            props = attach_claims_headers(props, claims_token)
         await self.session.conn.basic_publish(
             self.session.channel_id,
             body,
-            routing_key=queue,
-            properties={
-                "content_type": "application/json",
-                "correlation_id": rid,  # dual accessor: same value as JSON-RPC id
-                "reply_to": self.session.reply_queue,
-            },
+            exchange=exchange,
+            routing_key=target,
+            properties=props,
         )
         try:
             msg: IncomingMessage = await self.session.wait_reply(rid, fut)
@@ -74,10 +87,11 @@ class RpcClient:
             raise RpcError(
                 REQUEST_TIMEOUT,
                 "request timed out",
-                make_error_data(code=REQUEST_TIMEOUT, retryable=True, correlation_id=rid, method=method),
+                make_error_data(
+                    code=REQUEST_TIMEOUT, retryable=True, correlation_id=rid, method=method
+                ),
                 id=rid,
             ) from exc
-        # Prefer AMQP correlation_id; body id must match (dual-accessor invariant)
         amqp_cid = msg.properties.get("correlation_id")
         if amqp_cid != rid:
             raise RpcError(
@@ -99,19 +113,51 @@ class RpcServer:
         queue: str,
         handler: Handler,
         channel_id: int = 1,
+        auth: AuthConfig | None = None,
+        conn: AmqpConnection | None = None,
+        declare_queue: bool = True,
     ) -> None:
-        self.conn = AmqpConnection(config)
+        self.conn = conn if conn is not None else AmqpConnection(config)
+        self._owns_conn = conn is None
         self.queue = queue
         self.handler = handler
         self.channel_id = channel_id
+        self.auth = auth
+        self._declare_queue = declare_queue
         self._task: asyncio.Task[None] | None = None
         self._running = False
+        self._connected = False
+
+    @classmethod
+    def from_mesh(
+        cls,
+        mesh: MeshService,
+        *,
+        handler: Handler,
+        auth: AuthConfig | None = None,
+    ) -> RpcServer:
+        """Consume a queue already declared/bound by ``MeshService.start()``."""
+        if not mesh.started or mesh.queue is None:
+            raise RuntimeError("mesh service not started")
+        return cls(
+            queue=mesh.queue,
+            handler=handler,
+            channel_id=mesh.channel_id,
+            auth=auth,
+            conn=mesh.conn,
+            declare_queue=False,
+        )
 
     async def start(self) -> None:
-        await self.conn.connect()
-        await self.conn.open_channel(self.channel_id)
-        await self.conn.queue_declare(self.channel_id, self.queue, durable=False)
+        if self._owns_conn:
+            await self.conn.connect()
+            await self.conn.open_channel(self.channel_id)
+        elif not self.conn.sm.is_open:
+            raise RuntimeError("shared connection is not open")
+        if self._declare_queue:
+            await self.conn.queue_declare(self.channel_id, self.queue, durable=False)
         await self.conn.basic_consume(self.channel_id, self.queue)
+        self._connected = True
         self._running = True
         self._task = asyncio.create_task(self._loop(), name="rpc-server")
 
@@ -123,7 +169,9 @@ class RpcServer:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        await self.conn.close()
+            self._task = None
+        if self._owns_conn:
+            await self.conn.close()
 
     async def _loop(self) -> None:
         try:
@@ -138,7 +186,6 @@ class RpcServer:
         corr = msg.properties.get("correlation_id")
         try:
             method, params, body_id = decode_request(msg.body)
-            # Dual-accessor: AMQP correlation_id and JSON-RPC id must match
             if isinstance(corr, str) and corr != body_id:
                 raise RpcError(
                     INVALID_ENVELOPE,
@@ -146,6 +193,19 @@ class RpcServer:
                     make_error_data(code=INVALID_ENVELOPE, correlation_id=corr, method=method),
                 )
             request_id = corr if isinstance(corr, str) else body_id
+            if self.auth is not None:
+                if not isinstance(request_id, str):
+                    raise RpcError(
+                        INVALID_ENVELOPE,
+                        "correlation id required for auth",
+                        make_error_data(code=INVALID_ENVELOPE, method=method),
+                    )
+                self.auth.verify_request(
+                    method=method,
+                    params=params,
+                    correlation_id=request_id,
+                    properties=msg.properties,
+                )
             result = self.handler(method, params)
             if asyncio.iscoroutine(result):
                 result = await result

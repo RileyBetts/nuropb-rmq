@@ -15,6 +15,7 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "z3-solver>=4.12", "hypothesis>=6.100"]
 bench = ["pika>=1.3", "pytest>=8", "pytest-asyncio>=0.24"]
+claims = ["PyJWT>=2.8", "cryptography>=42"]
 
 [project.scripts]
 nuropb-rmq-bench = "bench.compare:main"

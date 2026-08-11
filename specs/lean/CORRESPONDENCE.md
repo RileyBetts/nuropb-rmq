@@ -97,12 +97,26 @@ manual review. No code extraction.
 | `resolve_first_wins`, `second_resolve_is_late` | `test_first_reply_wins_late_discarded`, `test_pbt_first_wins` |
 | `register_requires_reply_open`, `close_clears_pending` | Session start/close; reply queue exclusive auto-delete |
 
+## Pattern (Mesh + Claims) — SpeC++ / Python (no Lean yet)
+
+| SpeC++ / concept | Python |
+|---|---|
+| `in_namespace` / `BindOk` | `ServiceIdentity.assert_in_namespace` / `MeshService.assert_bind_allowed` |
+| `BindRefused` | `BIND_REFUSED` / `NamespaceError` |
+| `AuthOk` / claims binding | `AuthConfig.verify_request` (`jti`↔corr, `method` claim) |
+| `AuthReject` fail-closed | missing/expired/unbound/bad-sig → `CLAIMS_*` / `UNAUTHORIZED` |
+| `AuthPublicSkip` | `AuthConfig.public_methods` |
+| `specs/specpp/Pattern/mesh_claims.smt2` | PBTs under `tests/patterns/test_mesh.py` + `test_context.py` |
+
+Lean Pattern proofs are deferred; Phase 2 Lean remains reconnect/ordering.
+
 ## Build / test
 
 ```bash
 python specs/specpp/check_sat.py
 cd specs/lean && lake build
 cd ../.. && pytest -q tests/protocol tests/transport tests/session tests/patterns
+# claims unit tests need: pip install -e ".[claims]"
 # integration (needs local RabbitMQ):
 pytest -q tests/integration
 ```
