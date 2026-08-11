@@ -94,3 +94,53 @@ def test_inv4_reject_path_never_silent() -> None:
         sm.on_connection_open_ok()
     assert sm.state == ConnState.ERROR
     assert sm.state != before
+
+
+def test_inv3_start_ok_after_verified_tls() -> None:
+    """Lean startOk_requires_verified_tls: TLS path reaches START only after verify."""
+    sm = _fresh()
+    sm.on_tcp_connected(tls=True)
+    sm.on_tls_verified()
+    assert sm.state == ConnState.TLS_VERIFIED
+    sm.allow_amqp_header()
+    sm.on_connection_start()
+    sm.assert_can_send_connection_method(m.CONNECTION_START_OK)
+    sm.on_connection_start_ok_sent()
+    assert sm.state == ConnState.START_OK
+
+
+def test_inv5_begin_close_from_open_ok() -> None:
+    """Lean beginClose_ok_from_openOk / close_reachable_all."""
+    sm = _fresh()
+    sm.on_tcp_connected(tls=False)
+    sm.allow_amqp_header()
+    sm.on_connection_start()
+    sm.on_connection_start_ok_sent()
+    sm.on_connection_tune()
+    sm.on_connection_tune_ok_sent(heartbeat=30)
+    sm.on_connection_open_sent()
+    sm.on_connection_open_ok()
+    sm.begin_close()
+    assert sm.state == ConnState.CLOSING
+    sm.assert_can_send_connection_method(m.CONNECTION_CLOSE_OK)
+    sm.on_close_ok()
+    assert sm.state == ConnState.CLOSED
+
+
+def test_inv5_begin_close_rejected_from_error() -> None:
+    sm = _fresh()
+    with pytest.raises(ProtocolError):
+        sm.on_connection_open_ok()
+    assert sm.state == ConnState.ERROR
+    with pytest.raises(ProtocolError):
+        sm.begin_close()
+    assert sm.state == ConnState.ERROR
+
+
+@pytest.mark.asyncio
+async def test_inv7_connect_rejects_heartbeat_out_of_range() -> None:
+    from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig
+
+    conn = AmqpConnection(ConnectionConfig(heartbeat=90))
+    with pytest.raises(ValueError, match="1..60"):
+        await conn.connect()

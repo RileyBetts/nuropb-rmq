@@ -5,6 +5,22 @@ Manual correspondence map for the Lean↔Python coupling decided in
 `thinking/architecture.md`: SpeC++ → Lean model → property-based tests +
 manual review. No code extraction.
 
+## Alignment findings (2026-08-11)
+
+Re-audit of SpeC++ / Lean / Python against this document.
+
+| Area | Status | Notes |
+|---|---|---|
+| Protocol inv 1–7 | **Aligned** | State enums, `legalSend`, TLS-before-AMQP, reject→ERROR, frame bounds, heartbeat `1..60` match. Added `test_inv3_*` / `test_inv5_*`; transport validates/clamps heartbeat before SM. |
+| Inv 7 vs watchdog | **Documented** | Lean models negotiate/store bounds only. Python `_heartbeat_loop` (send + 2× silence → `CONNECTION_LOST`) is the transport obligation under the same single-policy field — not a separate Lean event. |
+| Session Phase 1b | **Aligned** | Id bounds/charset, collision reject, first-wins. Lean `replyOpen` is enforced at Session/RpcClient (`reply_queue_open`), not inside `CorrelationTable` alone. |
+| Session Phase 2 | **Aligned** | Fail-fast clear pending, epoch bump, DLQ timeout synthesizer; mesh rebind caller-owned. |
+| Pattern mesh/claims | **Aligned** | `inNamespace`/`tryBind` ↔ mesh guards; `tryAuth` ↔ `AuthConfig.verify_request`. Python also refuses empty method / `..` beyond SpeC++ prefix core. |
+| Config SpeC++ | **SpeC++ only** | `specs/specpp/Config/queue_profile*.smt2` — durable↔`delivery_mode` consistency. **No Lean module** (deferred); intentional, not accidental drift. |
+| TLS material / SASL EXTERNAL | **Outside Lean** | PEM sources + EXTERNAL selection are transport/config; Protocol Lean stops at TLS-verified before AMQP. |
+
+Residual gaps (accepted): JWT crypto axiomatized in Lean; broker ACL external; queue-profile Lean deferred; heartbeat watchdog not reified as Lean events.
+
 ## Modules
 
 | Lean | Python / SpeC++ |
@@ -17,7 +33,7 @@ manual review. No code extraction.
 | `specs/specpp/Protocol/connection_channel_sm.smt2` | Same sort universe as Lean `ConnState` / `ChanState` / `TlsState` |
 | `NuropbRmq.Session.Correlation` | `nuropb_rmq.session.{ids,correlation,session}` |
 | `NuropbRmq.Session.Invariants` | SpeC++ Session Phase 1b; PBTs under `tests/session/` |
-| `NuropbRmq.Session.DeadLetterTimeout` | Broker TTL/DLX + DLQ timeout synthesizer |
+| `NuropbRmq.Session.DeadLetterTimeout` | Broker TTL/DLX + `patterns/dlq_timeout.py` |
 | `NuropbRmq.Session.Reconnect` | `session/reconnect.py` + `Session.reconnect` |
 | `NuropbRmq.Session.Phase2Invariants` | SpeC++ Phase 2; PBTs under `tests/session/test_reconnect.py` |
 | `NuropbRmq.Pattern.Mesh` | `nuropb_rmq.patterns.mesh` |
@@ -26,6 +42,7 @@ manual review. No code extraction.
 | `specs/specpp/Session/correlation.smt2` | Session correlation sorts / clauses |
 | `specs/specpp/Session/phase2_reconnect.smt2` | Phase 2 terminal-state / reconnect epoch clauses |
 | `specs/specpp/Pattern/mesh_claims.smt2` | Pattern mesh/claims sorts / clauses |
+| `specs/specpp/Config/queue_profile.smt2` | Python `config/queue_profile.py` (SpeC++ only; Lean deferred) |
 
 ## States
 
@@ -81,13 +98,13 @@ manual review. No code extraction.
 
 | # | Lean theorem(s) | Python / tests |
 |---|---|---|
-| 1 | `legalSend_*`, `tryStep_startOk_requires_legal` | `assert_can_send_connection_method`; `test_inv1_*` |
-| 2 | `amqpHeader_rejects_during_tls_handshake`, `connStart_requires_verified_tls`, `tls_skip_verify_errors` | `allow_amqp_header`; `test_inv2_*` |
-| 3 | `startOk_requires_verified_tls` | start-ok path only after TLS verified when TLS configured |
+| 1 | `legalSend_*`, `tryStep_startOk_requires_legal` | `assert_can_send_connection_method`; `test_inv1_*`, `test_illegal_method_send_rejected` |
+| 2 | `amqpHeader_rejects_during_tls_handshake`, `connStart_requires_verified_tls` | `allow_amqp_header`; `test_inv2_*`, `test_tls_required_before_amqp` |
+| 3 | `startOk_requires_verified_tls` | TLS path only via `on_tls_verified` before START; `test_inv3_start_ok_after_verified_tls` |
 | 4 | `reject_implies_error`, `reject_event_tears_down` | `reject` → `ERROR`; `test_inv4_*` |
-| 5 | `close_reachable_all`, `beginClose_ok_from_openOk` | `begin_close` from non-terminal |
+| 5 | `close_reachable_all`, `beginClose_ok_from_openOk` | `begin_close` from non-terminal; `test_inv5_*` |
 | 6 | `decodeAccepted_*`, `inv6_decodeAccepted_implies_bounds` | `decode_frame` / `encode_table`; `test_inv6_pbt_*` |
-| 7 | `tuneOk_heartbeat_bounds`, `plainOpenOk_heartbeat` | heartbeat `1..60`; `test_inv7_*` |
+| 7 | `tuneOk_heartbeat_bounds`, `plainOpenOk_heartbeat` | SM `1..60`; `AmqpConnection.connect` validates config + clamps; `test_inv7_*`; watchdog in `tests/transport/test_heartbeat.py` |
 
 ## Session Phase 1b
 
@@ -96,6 +113,7 @@ manual review. No code extraction.
 | `validIdLen` / `validIdLen_bounds` | `session.ids.validate_id` (1..255 octets + charset) |
 | `dualAccessorOk` | RpcClient sets AMQP `correlation_id` = JSON-RPC `id` |
 | `tryRegister` → `.collision` | `CorrelationTable.register` → `IdCollisionError` |
+| `tryRegister` → `.replyClosed` | `RpcClient.request` requires `session.reply_queue_open` |
 | `tryResolve` → `.firstWin` / `.lateDiscard` | `CorrelationTable.resolve` first-wins / late discard |
 | `openReply` / `closeReply` brackets `pending` | `Session.start` / `Session.close` + `discard_all` |
 | `wellFormed` | reply queue lifetime brackets correlation table |
@@ -104,7 +122,7 @@ manual review. No code extraction.
 |---|---|
 | `register_collision`, `register_ok_fresh` | `test_collision_reject`, `test_pbt_collision_reject` |
 | `resolve_first_wins`, `second_resolve_is_late` | `test_first_reply_wins_late_discarded`, `test_pbt_first_wins` |
-| `register_requires_reply_open`, `close_clears_pending` | Session start/close; reply queue exclusive auto-delete |
+| `register_requires_reply_open`, `close_clears_pending` | Session start/close; RpcClient gate; loss → `discard_all` |
 
 ## Pattern (Mesh + Claims) — SpeC++ + Lean + Python
 
@@ -136,6 +154,13 @@ JWT crypto (`validSig` / `expired`) is axiomatized in Lean; broker ACL remains a
 | `onReconnect` bumps epoch | `Session.reconnect` / `ReconnectCoordinator` |
 | `MeshService.rebind` | Fresh connection + namespaced binds; caller restarts `RpcServer` |
 | `specs/specpp/Session/phase2_reconnect.smt2` | `tests/session/test_reconnect.py` + integration |
+
+## Config (SpeC++ only)
+
+| SpeC++ | Python | Lean |
+|---|---|---|
+| `Config/queue_profile.smt2` (sat) | `QueueProfile` durable ⇒ `delivery_mode=2` | **Deferred** |
+| `Config/queue_profile_negatives.smt2` (unsat) | publish refuse non-persistent on durable | **Deferred** |
 
 ## Build / test
 
