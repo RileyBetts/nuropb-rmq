@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Automated PyPI publish on annotated `v*` tags (Trusted Publishing /
+  `.github/workflows/publish.yml`); CI `uv build` + `twine check`
+
 ## 0.3.0 — 2026-08-12
 
 ### Added
@@ -77,9 +82,13 @@ stable; expect polish and docs before a broader 0.1.x / PyPI push.
 
 ## Release checklist
 
-Do **not** publish to PyPI until explicitly requested. For a GitHub release:
+For a GitHub + PyPI release:
 
-1. Gates green on `main`: SpeC++, unit (excl. fuzz), fuzz (`HYPOTHESIS_PROFILE=ci`), claims, integration, Lean
-2. `git tag -a vX.Y.Z -m "nuropb-rmq X.Y.Z"`
-3. `git push origin vX.Y.Z`
-4. `gh release create vX.Y.Z --notes-file …` (or paste the matching CHANGELOG section)
+1. Gates green on `main`: SpeC++, unit (excl. fuzz), fuzz (`HYPOTHESIS_PROFILE=ci`), claims, integration, Lean, package build
+2. Bump `pyproject.toml` / `__version__` (and AMQP `client_properties.version`) to `X.Y.Z`; fold CHANGELOG
+3. Promote `development` → `main` (merge commit)
+4. `git tag -a vX.Y.Z -m "nuropb-rmq X.Y.Z"` and `git push origin vX.Y.Z`
+   — [`.github/workflows/publish.yml`](.github/workflows/publish.yml) builds and uploads to PyPI
+5. Optionally `gh release create vX.Y.Z --notes-file …` (or paste the matching CHANGELOG section)
+
+One-time Trusted Publisher setup: see [`CONTRIBUTING.md`](CONTRIBUTING.md#publishing).

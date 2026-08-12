@@ -30,10 +30,10 @@ Alpha: the public API may still change. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Installation
 
-Python 3.11+. Until PyPI publish is wired up, install from GitHub:
+Python 3.11+:
 
 ```bash
-pip install "git+https://github.com/RileyBetts/nuropb-rmq.git"
+pip install nuropb-rmq
 ```
 
 | Extra | Purpose |
@@ -44,16 +44,18 @@ pip install "git+https://github.com/RileyBetts/nuropb-rmq.git"
 | `bench` | pika comparison harness |
 
 ```bash
-pip install "nuropb-rmq[claims] @ git+https://github.com/RileyBetts/nuropb-rmq.git"
+pip install "nuropb-rmq[claims]"
 ```
 
-PyPI publish is not automated. Prefer a tagged install for a known release:
+From a known Git tag (or before a version is on PyPI):
 
 ```bash
 pip install "git+https://github.com/RileyBetts/nuropb-rmq.git@v0.3.0"
 ```
 
-Release checklist and notes: [`CHANGELOG.md`](CHANGELOG.md).
+Pushing an annotated `v*` tag from `main` publishes to PyPI via
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml). Release checklist:
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ## Quick start
 

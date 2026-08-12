@@ -69,3 +69,22 @@ first:
 
 AMQPS / mTLS opt-in tests: see README TLS section and
 `tests/integration/test_amqps_*.py` plus scripts under `scripts/`.
+
+## Publishing
+
+Pushing an annotated tag `vX.Y.Z` from `main` runs
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml), which builds
+the sdist/wheel and uploads to PyPI via Trusted Publishing (OIDC). The tag
+must match `[project].version` in `pyproject.toml`.
+
+### One-time Trusted Publisher setup
+
+1. On PyPI, add a Trusted Publisher (or **pending** publisher for the first
+   upload) for project `nuropb-rmq`:
+   - Owner: `RileyBetts`
+   - Repository: `nuropb-rmq`
+   - Workflow: `publish.yml`
+   - Environment: `pypi`
+2. In this GitHub repo: Settings → Environments → create `pypi` (optional
+   protection rules are up to maintainers).
+3. Confirm the package name is available / owned on PyPI before the first tag.
