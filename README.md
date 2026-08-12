@@ -86,8 +86,11 @@ Prefer copy-paste demos? See **Examples** below. Stable imports:
 - [`examples/vanilla_topic/`](examples/vanilla_topic/) — topic exchange pub/sub
 - [`examples/one_client_one_service/`](examples/one_client_one_service/) — mesh RPC,
   events, and registry discovery
+- [`examples/langchain_example/`](examples/langchain_example/) — LangChain agent calling
+  a mesh service tool (self-standing `uv` project)
 
-Smoke all three (with [uv](https://docs.astral.sh/uv/) after `uv sync --dev`):
+Smoke examples (with [uv](https://docs.astral.sh/uv/) after `uv sync --dev`;
+the LangChain suite also needs `uv sync` in `examples/langchain_example`):
 
 ```bash
 ./scripts/smoke_examples.sh
