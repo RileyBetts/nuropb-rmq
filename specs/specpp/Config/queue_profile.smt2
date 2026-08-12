@@ -1,3 +1,6 @@
+; Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+; Released under Apache 2.0 license as described in the file LICENSE.
+
 ; SpeC++ Config: durable queue never disagrees with persistent delivery_mode.
 ; CheckSat must return sat.
 (set-logic ALL)

@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """AMQPS mTLS smoke: tls-verify-full + SASL EXTERNAL against a local broker.
 
 Opt-in — skipped unless ``NUROPB_RMQ_MTLS=1`` and CA/client cert files plus

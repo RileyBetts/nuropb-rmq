@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 # Generate a local CA + RabbitMQ server + client certs for AMQPS / mTLS smoke.
 # Writes into dev/amqps/ (gitignored). Does not configure the broker.
 set -euo pipefail

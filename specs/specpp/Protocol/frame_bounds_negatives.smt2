@@ -1,3 +1,6 @@
+; Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+; Released under Apache 2.0 license as described in the file LICENSE.
+
 ; Frame bounds negatives — expected unsat
 ; Claim: payload whose wire size (payload+8) exceeds frame_max is accepted.
 (set-logic ALL)

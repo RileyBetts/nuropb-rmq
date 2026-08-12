@@ -1,3 +1,6 @@
+; Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+; Released under Apache 2.0 license as described in the file LICENSE.
+
 ; SpeC++ Pattern: mesh namespace bind + auth-required claims (Phase step 6).
 ; CheckSat must return sat.
 (set-logic ALL)

@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Integration: large body fragmentation + publisher confirms + cancel/nack."""
 
 from __future__ import annotations

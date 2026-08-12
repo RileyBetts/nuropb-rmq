@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Integration smoke: connect, declare, publish, consume, ack against RabbitMQ."""
 
 from __future__ import annotations

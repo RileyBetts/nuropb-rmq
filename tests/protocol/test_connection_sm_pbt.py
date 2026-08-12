@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Property-based tests mirroring Lean Protocol SM invariants 1, 2, 4, 7."""
 
 from __future__ import annotations

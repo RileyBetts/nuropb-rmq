@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.2.0 — 2026-08-12
+
 ### Added
 
 - Publisher confirms (`confirm.select`); durable profile / RPC publishes wait for
@@ -14,10 +16,13 @@ All notable changes to this project are documented in this file.
 - `basic.nack` / `basic.reject` / `basic.cancel`; `NackDelivery` for RpcServer poison path
 - Field-table encoder support for float, list/array, Decimal, datetime
 - SpeC++ + Lean: frame bounds, publisher confirms, delivery settle
+- Copyright / Apache-2.0 headers on Lean, Python, SMT-LIB, and shell source files
 
 ### Changed
 
 - Docs: queue-profile durability now documents confirms + nack→DLX; explicit AMQP non-goals
+
+## 0.1.0 — 2026-08-11
 
 First tagged **alpha** library surface (Apache-2.0). Public API is relatively
 stable; expect polish and docs before a broader 0.1.x / PyPI push.
@@ -56,11 +61,11 @@ stable; expect polish and docs before a broader 0.1.x / PyPI push.
 - Field-value decode raises `AmqpCodecError` on truncated fixed-width tags
   (fuzz found `IndexError` on lone `t` / similar short payloads)
 
-## Release checklist (`v0.1.0`)
+## Release checklist
 
 Do **not** publish to PyPI until explicitly requested. For a GitHub release:
 
 1. Gates green on `main`: SpeC++, unit (excl. fuzz), fuzz (`HYPOTHESIS_PROFILE=ci`), claims, integration, Lean
-2. `git tag -a v0.1.0 -m "nuropb-rmq 0.1.0"`
-3. `git push origin v0.1.0`
-4. `gh release create v0.1.0 --notes-file …` (or paste the 0.1.0 section)
+2. `git tag -a vX.Y.Z -m "nuropb-rmq X.Y.Z"`
+3. `git push origin vX.Y.Z`
+4. `gh release create vX.Y.Z --notes-file …` (or paste the matching CHANGELOG section)

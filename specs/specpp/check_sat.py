@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """SpeC++ CheckSat gate for Protocol + Session + Pattern + Config clauses.
 
 Runs Z3 against SMT-LIB specs under specs/specpp/.

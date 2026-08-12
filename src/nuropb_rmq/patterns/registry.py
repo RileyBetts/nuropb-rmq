@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Optional AMQP-backed mesh discovery registry (never a bind/auth authority).
 
 Services may announce themselves on fanout exchange ``nr.mesh.registry``.

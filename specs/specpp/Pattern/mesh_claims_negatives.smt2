@@ -1,3 +1,6 @@
+; Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+; Released under Apache 2.0 license as described in the file LICENSE.
+
 ; Negative Pattern checks: namespace violation or auth fail-closed break → UNSAT
 (set-logic ALL)
 (set-info :status unsat)

@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Demo mesh service: announce methods, handle RPC, publish events.
 
 Run first (with RabbitMQ up)::
