@@ -191,7 +191,7 @@ class AmqpConnection:
                 m.CONNECTION,
                 m.CONNECTION_START_OK,
                 {
-                    "client_properties": {"product": "nuropb-rmq", "version": "0.3.0"},
+                    "client_properties": {"product": "nuropb-rmq", "version": "0.4.1"},
                     "mechanism": mechanism,
                     "response": response,
                     "locale": "en_US",

@@ -50,7 +50,7 @@ pip install "nuropb-rmq[claims]"
 From a known Git tag (or before a version is on PyPI):
 
 ```bash
-pip install "git+https://github.com/RileyBetts/nuropb-rmq.git@v0.3.0"
+pip install "git+https://github.com/RileyBetts/nuropb-rmq.git@v0.4.1"
 ```
 
 Pushing an annotated `v*` tag from `main` publishes to PyPI via
