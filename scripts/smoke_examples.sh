@@ -135,7 +135,40 @@ smoke_mesh() {
   pass_suite "one_client_one_service"
 }
 
+# --- langchain_example (smoke path; live LLM agent is manual) ---
+smoke_langchain() {
+  local slog aout
+  local ex_py=(uv run --project examples/langchain_example python)
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "SKIP langchain_example (uv required for example project)" >&2
+    return 0
+  fi
+  slog="$(mktemp)"
+  "${ex_py[@]}" examples/langchain_example/worker.py >"$slog" 2>&1 &
+  local pid=$!
+  sleep 1.5
+  aout="$("${ex_py[@]}" examples/langchain_example/agent.py --smoke 2>&1)" || {
+    kill_bg "$pid"
+    echo "FAIL langchain_example/agent --smoke exited non-zero" >&2
+    echo "$aout" >&2
+    cat "$slog" >&2
+    rm -f "$slog"
+    return 1
+  }
+  sleep 0.3
+  kill_bg "$pid"
+  local wlog
+  wlog="$(cat "$slog")"
+  rm -f "$slog"
+  assert_contains "langchain_example/agent" "$aout" "smoke done"
+  assert_contains "langchain_example/agent" "$aout" "ORD-1001"
+  assert_contains "langchain_example/agent" "$aout" "INVALID_PARAMS"
+  assert_contains "langchain_example/worker" "$wlog" "get_status order_id="
+  pass_suite "langchain_example"
+}
+
 smoke_hello
 smoke_topic
 smoke_mesh
+smoke_langchain
 echo "All example smokes passed."
