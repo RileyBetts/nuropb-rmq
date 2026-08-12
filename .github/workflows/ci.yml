@@ -33,6 +33,10 @@ jobs:
         env:
           HYPOTHESIS_PROFILE: ci
         run: uv run pytest -q -m fuzz
+      - name: Build package
+        run: uv build
+      - name: Twine check
+        run: uvx twine check dist/*
 
   claims:
     name: Claims unit tests
