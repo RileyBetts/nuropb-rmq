@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.2.0 — 2026-08-12
+
 ### Added
 
 - Publisher confirms (`confirm.select`); durable profile / RPC publishes wait for
@@ -51,9 +53,19 @@ stable; expect polish and docs before a broader 0.1.x / PyPI push.
 
 - `RpcServer` / `MeshService` declare via queue profiles (quorum by default)
 - `EventPublisher` defaults to `transient-fast-path` delivery mode
-- Docs: consumer-first README; CONTRIBUTING points at docs + examples
+- README consumer-first; maintainer branching/CI in [`CONTRIBUTING.md`](CONTRIBUTING.md);
+  capability detail pointed at `docs/`
 
-### Security
+### Fixed
 
-- TLS verify-full / mTLS paths; secrets-hook for material; JWT claim enforcement
+- Field-value decode raises `AmqpCodecError` on truncated fixed-width tags
+  (fuzz found `IndexError` on lone `t` / similar short payloads)
 
+## Release checklist
+
+Do **not** publish to PyPI until explicitly requested. For a GitHub release:
+
+1. Gates green on `main`: SpeC++, unit (excl. fuzz), fuzz (`HYPOTHESIS_PROFILE=ci`), claims, integration, Lean
+2. `git tag -a vX.Y.Z -m "nuropb-rmq X.Y.Z"`
+3. `git push origin vX.Y.Z`
+4. `gh release create vX.Y.Z --notes-file …` (or paste the matching CHANGELOG section)
