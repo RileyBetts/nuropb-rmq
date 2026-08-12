@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Subscribe to the topic exchange ``nr.ex.logs``.
 
 Default binding is ``logs.*``. Override with argv or ``NUROPB_RMQ_BINDING_KEY``::

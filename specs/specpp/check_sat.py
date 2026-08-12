@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """SpeC++ CheckSat gate for Protocol + Session + Pattern + Config clauses.
 
 Runs Z3 against SMT-LIB specs under specs/specpp/.
@@ -18,6 +21,12 @@ ROOT = Path(__file__).resolve().parent
 CHECKS: list[tuple[str, str, str]] = [
     ("Protocol", "connection_channel_sm.smt2", "sat"),
     ("Protocol", "connection_channel_sm_negatives.smt2", "unsat"),
+    ("Protocol", "frame_bounds.smt2", "sat"),
+    ("Protocol", "frame_bounds_negatives.smt2", "unsat"),
+    ("Protocol", "publisher_confirms.smt2", "sat"),
+    ("Protocol", "publisher_confirms_negatives.smt2", "unsat"),
+    ("Protocol", "connection_blocked.smt2", "sat"),
+    ("Protocol", "connection_blocked_negatives.smt2", "unsat"),
     ("Session", "correlation.smt2", "sat"),
     ("Session", "correlation_negatives.smt2", "unsat"),
     ("Session", "phase2_reconnect.smt2", "sat"),

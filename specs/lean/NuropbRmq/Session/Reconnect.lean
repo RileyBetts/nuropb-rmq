@@ -1,3 +1,8 @@
+/-
+Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
+
 /-!
 Phase 2: reconnect epoch — old reply queue ends; outstanding cleared;
 new reply queue brackets a fresh correlation table.

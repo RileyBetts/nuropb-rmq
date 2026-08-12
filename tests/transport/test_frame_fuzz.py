@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Dedicated frame-decode fuzz lane (malformed / adversarial inputs).
 
 Decode must return a frame or raise ``AmqpCodecError`` — never hang or

@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Unit tests for AMQP frame codec bounds checking."""
 
 from __future__ import annotations
@@ -32,8 +35,39 @@ def test_roundtrip_method_frame() -> None:
 def test_rejects_oversize_length_before_accept() -> None:
     # Craft header claiming huge size without providing payload
     header = bytes([FrameType.METHOD]) + (0).to_bytes(2, "big") + (10_000_000).to_bytes(4, "big")
-    with pytest.raises(AmqpCodecError, match="exceeds frame_max"):
+    with pytest.raises(AmqpCodecError, match="exceeds max payload"):
         decode_frame(header + b"x" * 100, frame_max=131072)
+
+
+def test_encode_rejects_payload_at_old_broken_limit() -> None:
+    """Payload == frame_max must fail (wire size would be frame_max+8)."""
+    from nuropb_rmq.transport.frame import FRAME_OVERHEAD, max_frame_payload
+
+    payload_max = max_frame_payload(DEFAULT_FRAME_MAX)
+    assert payload_max == DEFAULT_FRAME_MAX - FRAME_OVERHEAD
+    ok = encode_frame(Frame(FrameType.BODY, 1, b"x" * payload_max))
+    assert len(ok) == DEFAULT_FRAME_MAX
+    with pytest.raises(AmqpCodecError, match="exceeds max payload"):
+        encode_frame(Frame(FrameType.BODY, 1, b"x" * (payload_max + 1)))
+
+
+def test_table_roundtrip_float_array_decimal() -> None:
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    table = {
+        "rate": 1.5,
+        "tags": ["a", "b"],
+        "when": datetime(2024, 1, 1, tzinfo=UTC),
+        "amt": Decimal("12.34"),
+    }
+    encoded = encode_table(table)
+    decoded, end = decode_table(encoded)
+    assert end == len(encoded)
+    assert decoded["rate"] == pytest.approx(1.5)
+    assert decoded["tags"] == ["a", "b"]
+    assert decoded["when"] == int(datetime(2024, 1, 1, tzinfo=UTC).timestamp())
+    assert decoded["amt"] == (2, 1234)
 
 
 def test_rejects_deep_table_nesting() -> None:
@@ -87,16 +121,16 @@ def test_heartbeat_frame() -> None:
     assert frame.payload == b""
 
 
-@given(st.integers(min_value=DEFAULT_FRAME_MAX + 1, max_value=DEFAULT_FRAME_MAX * 4))
+@given(st.integers(min_value=DEFAULT_FRAME_MAX - 7, max_value=DEFAULT_FRAME_MAX * 4))
 @settings(max_examples=30)
 def test_inv6_pbt_oversize_length_rejected(claimed_size: int) -> None:
-    """Lean `decodeAccepted_reject_oversize` / inv6."""
+    """Lean `decodeAccepted_reject_oversize` / inv6 (payload > frame_max-8)."""
     header = (
         bytes([FrameType.METHOD])
         + (0).to_bytes(2, "big")
         + claimed_size.to_bytes(4, "big")
     )
-    with pytest.raises(AmqpCodecError, match="exceeds frame_max"):
+    with pytest.raises(AmqpCodecError, match="exceeds max payload"):
         decode_frame(header, frame_max=DEFAULT_FRAME_MAX)
 
 

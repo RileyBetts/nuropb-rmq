@@ -1,3 +1,6 @@
+; Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+; Released under Apache 2.0 license as described in the file LICENSE.
+
 ; Negative consistency checks: violating core Protocol invariants under the
 ; same axiom set must be UNSAT. Included axioms mirror the positive spec.
 (set-logic ALL)

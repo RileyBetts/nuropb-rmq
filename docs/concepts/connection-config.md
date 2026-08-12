@@ -54,3 +54,6 @@ Cloud and LB setups often need them to differ. See
 - Field table: [ConnectionConfig reference](../reference/connection-config.md)
 - TLS details: [TLS profiles and material](tls-profiles-and-material.md)
 - Diagram: [Architecture overview — AMQPS connect](architecture-overview.md#amqps-connect)
+- Under broker memory/disk alarm, `connection.blocked` sets a fail-fast flag:
+  further `basic_publish` raises `ConnectionBlockedError` until `unblocked`
+  (optional `on_connection_blocked` / `on_connection_unblocked` callbacks).

@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """TLS cert/key material loading: files, in-memory PEM, PKCS#12, secrets hook.
 
 All sources normalize to :class:`TlsMaterial` (PEM) before SSLContext construction.

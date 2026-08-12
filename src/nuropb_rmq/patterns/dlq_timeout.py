@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """DLQ consumer: synthesize JSON-RPC timeout replies to original reply_to."""
 
 from __future__ import annotations

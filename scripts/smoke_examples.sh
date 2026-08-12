@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 # Smoke-run all example suites against local RabbitMQ.
 # Usage: ./scripts/smoke_examples.sh
 set -euo pipefail

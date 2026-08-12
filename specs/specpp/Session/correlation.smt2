@@ -1,3 +1,6 @@
+; Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+; Released under Apache 2.0 license as described in the file LICENSE.
+
 ; SpeC++ Session correlation specification (Phase 1b).
 ; Id format, dual-accessor consistency, collision reject, first-reply-wins,
 ; reply-queue lifetime brackets correlation table.

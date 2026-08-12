@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """AMQPS integration smoke: tls-verify-full against a local SSL listener.
 
 Opt-in — skipped unless ``NUROPB_RMQ_TLS=1`` and a CA file + port 5671 are

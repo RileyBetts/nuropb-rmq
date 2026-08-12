@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """JSON-RPC error taxonomy and allowlisted error.data."""
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ CLAIMS_UNBOUND = -33103
 BIND_REFUSED = -33201
 REQUEST_TIMEOUT = -33300
 CONNECTION_LOST = -33400
+CONNECTION_BLOCKED = -33401
+PUBLISH_NACK = -33402
 SERVER_ERROR = -32000  # shared coarse fallback only
 
 CODE_NAMES: dict[int, str] = {
@@ -29,6 +34,8 @@ CODE_NAMES: dict[int, str] = {
     BIND_REFUSED: "BIND_REFUSED",
     REQUEST_TIMEOUT: "REQUEST_TIMEOUT",
     CONNECTION_LOST: "CONNECTION_LOST",
+    CONNECTION_BLOCKED: "CONNECTION_BLOCKED",
+    PUBLISH_NACK: "PUBLISH_NACK",
     SERVER_ERROR: "SERVER_ERROR",
 }
 

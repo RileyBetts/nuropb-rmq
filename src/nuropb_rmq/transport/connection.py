@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Asyncio TCP/TLS transport and AMQP connection orchestration."""
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from nuropb_rmq.protocol.methods import (
     encode_content_header,
     encode_method,
 )
+from nuropb_rmq.transport.confirm import ConfirmTracker
 from nuropb_rmq.transport.frame import (
     DEFAULT_FRAME_MAX,
     PROTOCOL_HEADER,
@@ -34,11 +38,16 @@ from nuropb_rmq.transport.frame import (
     FrameType,
     decode_frame,
     encode_frame,
+    max_frame_payload,
 )
 from nuropb_rmq.transport.tls_material import TlsMaterial, TlsSecrets, resolve_tls_material
 
 # Poison object waking blocked receive() after connection loss.
 _LOSS_SENTINEL = object()
+
+
+class ConnectionBlockedError(ProtocolError):
+    """Publish refused because the broker sent connection.blocked."""
 
 
 class TlsProfile:
@@ -73,6 +82,9 @@ class ConnectionConfig:
     pkcs12_password: bytes | str | None = None
     server_hostname: str | None = None
     custom_sans: list[str] = field(default_factory=list)
+    # Optional connection.blocked / unblocked callbacks (reason str for blocked).
+    on_connection_blocked: Callable[[str], None] | None = None
+    on_connection_unblocked: Callable[[], None] | None = None
 
     def __repr__(self) -> str:
         def _pem(label: str, data: bytes | str | None) -> str:
@@ -130,6 +142,8 @@ class AmqpConnection:
         self._heartbeat_sec: int = 0
         self._last_peer_frame_at: float = 0.0
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self._publish_blocked: bool = False
+        self._confirm: dict[int, ConfirmTracker] = {}
 
     def set_on_loss(self, callback: Callable[[BaseException], None] | None) -> None:
         """Register callback invoked once when the connection is lost."""
@@ -338,11 +352,26 @@ class AmqpConnection:
             raise ProtocolError(f"channel {channel_id} already exists")
         ch = ChannelStateMachine(channel_id)
         self._channels[channel_id] = ch
+        self._confirm[channel_id] = ConfirmTracker()
         ch.on_open_sent()
         await self._send_method(channel_id, Method(m.CHANNEL, m.CHANNEL_OPEN, {"out_of_band": ""}))
         await self._expect(channel_id, m.CHANNEL, m.CHANNEL_OPEN_OK)
         ch.on_open_ok()
         return channel_id
+
+    async def confirm_select(self, channel_id: int) -> None:
+        """Enable RabbitMQ publisher confirms on ``channel_id``."""
+        ch = self._channels[channel_id]
+        ch.assert_open_for_ops()
+        tracker = self._confirm.setdefault(channel_id, ConfirmTracker())
+        if tracker.enabled:
+            return
+        await self._send_method(
+            channel_id,
+            Method(m.CONFIRM, m.CONFIRM_SELECT, {"nowait": False}),
+        )
+        await self._expect(channel_id, m.CONFIRM, m.CONFIRM_SELECT_OK)
+        tracker.enable()
 
     async def queue_declare(
         self,
@@ -472,13 +501,36 @@ class AmqpConnection:
         properties: dict[str, Any] | None = None,
         drain: bool = True,
         queue_profile: QueueProfile | None = None,
+        confirm: bool | None = None,
     ) -> None:
         ch = self._channels[channel_id]
         ch.assert_open_for_ops()
+        if self._publish_blocked:
+            raise ConnectionBlockedError("connection.blocked — publish refused")
         props = properties
         if queue_profile is not None:
             props = queue_profile.apply_publish_properties(properties)
-        # Coalesce method + content-header + body into one write burst.
+
+        tracker = self._confirm.get(channel_id)
+        want_confirm = confirm
+        if want_confirm is None:
+            # Auto-enable confirms for durable profiles; wait if channel already in confirm mode.
+            if queue_profile is not None and queue_profile.durable:
+                want_confirm = True
+            elif tracker is not None and tracker.enabled:
+                want_confirm = True
+            else:
+                want_confirm = False
+        if want_confirm:
+            if tracker is None or not tracker.enabled:
+                await self.confirm_select(channel_id)
+                tracker = self._confirm[channel_id]
+            assert tracker is not None
+            _tag, confirm_fut = tracker.register()
+        else:
+            confirm_fut = None
+
+        # Coalesce method + content-header + body frames into one write burst.
         self._write_frame(
             Frame(
                 FrameType.METHOD,
@@ -498,9 +550,19 @@ class AmqpConnection:
         )
         header = encode_content_header(class_id=m.BASIC, body_size=len(body), properties=props)
         self._write_frame(Frame(FrameType.HEADER, channel_id, header))
-        self._write_frame(Frame(FrameType.BODY, channel_id, body))
+        payload_max = max_frame_payload(self.frame_max)
+        if not body:
+            self._write_frame(Frame(FrameType.BODY, channel_id, b""))
+        else:
+            offset = 0
+            while offset < len(body):
+                chunk = body[offset : offset + payload_max]
+                self._write_frame(Frame(FrameType.BODY, channel_id, chunk))
+                offset += len(chunk)
         if drain:
             await self._drain()
+        if confirm_fut is not None:
+            await confirm_fut
 
     async def basic_consume(self, channel_id: int, queue: str, *, consumer_tag: str = "") -> str:
         ch = self._channels[channel_id]
@@ -522,6 +584,20 @@ class AmqpConnection:
         ok = await self._expect(channel_id, m.BASIC, m.BASIC_CONSUME_OK)
         return str(ok.args["consumer_tag"])
 
+    async def basic_cancel(self, channel_id: int, consumer_tag: str) -> str:
+        ch = self._channels[channel_id]
+        ch.assert_open_for_ops()
+        await self._send_method(
+            channel_id,
+            Method(
+                m.BASIC,
+                m.BASIC_CANCEL,
+                {"consumer_tag": consumer_tag, "nowait": False},
+            ),
+        )
+        ok = await self._expect(channel_id, m.BASIC, m.BASIC_CANCEL_OK)
+        return str(ok.args["consumer_tag"])
+
     async def basic_ack(
         self, channel_id: int, delivery_tag: int, *, drain: bool = True
     ) -> None:
@@ -533,6 +609,63 @@ class AmqpConnection:
                 channel_id,
                 encode_method(
                     Method(m.BASIC, m.BASIC_ACK, {"delivery_tag": delivery_tag, "multiple": False})
+                ),
+            )
+        )
+        if drain:
+            await self._drain()
+
+    async def basic_nack(
+        self,
+        channel_id: int,
+        delivery_tag: int,
+        *,
+        requeue: bool = False,
+        multiple: bool = False,
+        drain: bool = True,
+    ) -> None:
+        ch = self._channels[channel_id]
+        ch.assert_open_for_ops()
+        self._write_frame(
+            Frame(
+                FrameType.METHOD,
+                channel_id,
+                encode_method(
+                    Method(
+                        m.BASIC,
+                        m.BASIC_NACK,
+                        {
+                            "delivery_tag": delivery_tag,
+                            "multiple": multiple,
+                            "requeue": requeue,
+                        },
+                    )
+                ),
+            )
+        )
+        if drain:
+            await self._drain()
+
+    async def basic_reject(
+        self,
+        channel_id: int,
+        delivery_tag: int,
+        *,
+        requeue: bool = False,
+        drain: bool = True,
+    ) -> None:
+        ch = self._channels[channel_id]
+        ch.assert_open_for_ops()
+        self._write_frame(
+            Frame(
+                FrameType.METHOD,
+                channel_id,
+                encode_method(
+                    Method(
+                        m.BASIC,
+                        m.BASIC_REJECT,
+                        {"delivery_tag": delivery_tag, "requeue": requeue},
+                    )
                 ),
             )
         )
@@ -576,6 +709,8 @@ class AmqpConnection:
             exc = ConnectionLost(str(exc))
         self._lost_exc = exc
         self._fail_waiters()
+        for tracker in self._confirm.values():
+            tracker.fail_all(exc)
         try:
             self._deliveries.put_nowait(_LOSS_SENTINEL)
         except Exception:
@@ -671,6 +806,39 @@ class AmqpConnection:
                     if frame.frame_type == FrameType.METHOD:
                         method = decode_method(frame.payload)
                         if (
+                            method.class_id == m.CONNECTION
+                            and method.method_id == m.CONNECTION_SECURE
+                        ):
+                            self.sm.reject(
+                                "connection.secure not supported "
+                                "(unexpected SASL challenge after start-ok)"
+                            )
+                        if (
+                            method.class_id == m.CONNECTION
+                            and method.method_id == m.CONNECTION_BLOCKED
+                        ):
+                            reason = str(method.args.get("reason", ""))
+                            self._publish_blocked = True
+                            cb = self.config.on_connection_blocked
+                            if cb is not None:
+                                try:
+                                    cb(reason)
+                                except Exception:
+                                    pass
+                            continue
+                        if (
+                            method.class_id == m.CONNECTION
+                            and method.method_id == m.CONNECTION_UNBLOCKED
+                        ):
+                            self._publish_blocked = False
+                            cb_u = self.config.on_connection_unblocked
+                            if cb_u is not None:
+                                try:
+                                    cb_u()
+                                except Exception:
+                                    pass
+                            continue
+                        if (
                             method.class_id == m.BASIC
                             and method.method_id == m.BASIC_DELIVER
                         ):
@@ -681,6 +849,19 @@ class AmqpConnection:
                                 "remaining": None,
                             }
                             continue
+                        if (
+                            method.class_id == m.BASIC
+                            and method.method_id in (m.BASIC_ACK, m.BASIC_NACK)
+                        ):
+                            tracker = self._confirm.get(frame.channel)
+                            if tracker is not None and tracker.enabled:
+                                tag = int(method.args["delivery_tag"])
+                                multiple = bool(method.args.get("multiple"))
+                                if method.method_id == m.BASIC_ACK:
+                                    tracker.on_ack(tag, multiple=multiple)
+                                else:
+                                    tracker.on_nack(tag, multiple=multiple)
+                                continue
                         if (
                             method.class_id == m.CONNECTION
                             and method.method_id == m.CONNECTION_CLOSE
