@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.4.1 — 2026-08-12
+
 ### Added
 
 - Automated PyPI publish on annotated `v*` tags (Trusted Publishing /
