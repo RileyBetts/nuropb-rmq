@@ -33,6 +33,20 @@ you need the decision ledger or formal-methods correspondence.
 - [ConnectionConfig fields](reference/connection-config.md)
 - [Environment variables](reference/env-vars.md) — `NUROPB_RMQ_*` in examples/tests
 
+## Examples
+
+Runnable demos under [`examples/`](../examples/). Smoke all suites with
+[`scripts/smoke_examples.sh`](../scripts/smoke_examples.sh). LangChain / LangGraph
+suites need `uv sync` in their example directories first.
+
+| Example | Shows |
+|---------|--------|
+| [vanilla_hello](../examples/vanilla_hello/) | Durable publish/consume |
+| [vanilla_topic](../examples/vanilla_topic/) | Topic pub/sub |
+| [one_client_one_service](../examples/one_client_one_service/) | Mesh RPC + events + registry |
+| [langchain_example](../examples/langchain_example/) | LangChain tool → `orders.get_status` mesh RPC |
+| [langgraph_example](../examples/langgraph_example/) | LangGraph `remote_node` invoice extract + reconnect replay |
+
 ## Also see
 
 - [Root README](../README.md) — install and quick start

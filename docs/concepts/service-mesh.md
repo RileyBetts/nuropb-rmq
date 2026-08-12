@@ -70,7 +70,14 @@ await viewer.start()
 print(viewer.lookup("orders"))
 ```
 
-Runnable walkthrough: [`examples/one_client_one_service/`](../../examples/one_client_one_service/).
+Runnable walkthroughs:
+
+- Mesh RPC + events + registry:
+  [`examples/one_client_one_service/`](../../examples/one_client_one_service/)
+- LangChain tool over mesh RPC:
+  [`examples/langchain_example/`](../../examples/langchain_example/)
+- LangGraph remote node over mesh RPC:
+  [`examples/langgraph_example/`](../../examples/langgraph_example/)
 
 ## Related
 
