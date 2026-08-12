@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """JSON-RPC 2.0 envelope encode/decode (spec-pure body)."""
 
 from __future__ import annotations

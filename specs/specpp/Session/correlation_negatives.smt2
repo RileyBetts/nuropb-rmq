@@ -1,3 +1,6 @@
+; Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+; Released under Apache 2.0 license as described in the file LICENSE.
+
 ; Negative Session correlation checks: violating Phase 1b invariants → UNSAT.
 (set-logic ALL)
 (set-info :status unsat)

@@ -1,3 +1,6 @@
+; Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+; Released under Apache 2.0 license as described in the file LICENSE.
+
 ; SpeC++ Config negatives: durable + non-persistent is inconsistent.
 ; CheckSat must return unsat.
 (set-logic ALL)

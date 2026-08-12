@@ -1,3 +1,8 @@
+/-
+Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
+
 /-!
 Bounded frame-decode acceptance predicate (Protocol invariant 6).
 ``frame_max`` bounds total wire size (payload + 8).

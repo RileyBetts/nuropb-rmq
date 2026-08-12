@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Shared broker discovery, payloads, and metrics for throughput benches."""
 
 from __future__ import annotations

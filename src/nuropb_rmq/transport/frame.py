@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """AMQP 0-9-1 frame encode/decode with bounds checks (SpeC++ invariant 6)."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Integration: JSON-RPC notification pub/sub over fanout and topic."""
 
 from __future__ import annotations

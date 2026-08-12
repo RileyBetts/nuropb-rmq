@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Reconnect coordination (fail-fast outstanding RPCs; new Session epoch).
 
 v1 policy: on disconnect, outstanding requests fail with CONNECTION_LOST.

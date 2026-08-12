@@ -1,3 +1,6 @@
+; Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+; Released under Apache 2.0 license as described in the file LICENSE.
+
 ; SpeC++-style Protocol connection/channel state-machine specification
 ; Sort universe + clauses for architecture invariants 1–7.
 ; CheckSat must return sat (spec is consistent / admits a model).

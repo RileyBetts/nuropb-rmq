@@ -1,3 +1,6 @@
+# Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
+# Released under Apache 2.0 license as described in the file LICENSE.
+
 """Anti-enumeration: public error envelopes share allowlisted shape.
 
 Architecture goal: DLQ timeout vs other mesh failures must not leak

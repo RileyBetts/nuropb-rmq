@@ -14,10 +14,13 @@ All notable changes to this project are documented in this file.
 - `basic.nack` / `basic.reject` / `basic.cancel`; `NackDelivery` for RpcServer poison path
 - Field-table encoder support for float, list/array, Decimal, datetime
 - SpeC++ + Lean: frame bounds, publisher confirms, delivery settle
+- Copyright / Apache-2.0 headers on Lean, Python, SMT-LIB, and shell source files
 
 ### Changed
 
 - Docs: queue-profile durability now documents confirms + nack→DLX; explicit AMQP non-goals
+
+## 0.1.0 — 2026-08-11
 
 First tagged **alpha** library surface (Apache-2.0). Public API is relatively
 stable; expect polish and docs before a broader 0.1.x / PyPI push.
@@ -48,19 +51,9 @@ stable; expect polish and docs before a broader 0.1.x / PyPI push.
 
 - `RpcServer` / `MeshService` declare via queue profiles (quorum by default)
 - `EventPublisher` defaults to `transient-fast-path` delivery mode
-- README consumer-first; maintainer branching/CI in [`CONTRIBUTING.md`](CONTRIBUTING.md);
-  capability detail pointed at `docs/`
+- Docs: consumer-first README; CONTRIBUTING points at docs + examples
 
-### Fixed
+### Security
 
-- Field-value decode raises `AmqpCodecError` on truncated fixed-width tags
-  (fuzz found `IndexError` on lone `t` / similar short payloads)
+- TLS verify-full / mTLS paths; secrets-hook for material; JWT claim enforcement
 
-## Release checklist (`v0.1.0`)
-
-Do **not** publish to PyPI until explicitly requested. For a GitHub release:
-
-1. Gates green on `main`: SpeC++, unit (excl. fuzz), fuzz (`HYPOTHESIS_PROFILE=ci`), claims, integration, Lean
-2. `git tag -a v0.1.0 -m "nuropb-rmq 0.1.0"`
-3. `git push origin v0.1.0`
-4. `gh release create v0.1.0 --notes-file …` (or paste the 0.1.0 section)
