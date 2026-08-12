@@ -59,7 +59,9 @@ uv sync --dev --extra claims
 uv run pytest -q tests/patterns/test_context.py tests/integration/test_mesh_claims_amqp.py
 ```
 
-Example smoke (needs a broker):
+Example smoke (needs a broker). LangChain / LangGraph suites also need
+`uv sync` inside `examples/langchain_example` and `examples/langgraph_example`
+first:
 
 ```bash
 ./scripts/smoke_examples.sh

@@ -6,8 +6,8 @@
 Requires the worker running first. Only the *client* connection is dropped;
 mesh redelivery vs LangGraph replay stay mutually exclusive (reply queue gone).
 
-    uv run --project examples/langraph_example python examples/langraph_example/worker.py
-    uv run --project examples/langraph_example python examples/langraph_example/reconnect_demo.py
+    uv run --project examples/langgraph_example python examples/langgraph_example/worker.py
+    uv run --project examples/langgraph_example python examples/langgraph_example/reconnect_demo.py
 """
 
 from __future__ import annotations

@@ -5,8 +5,8 @@
 
 Requires the worker running first::
 
-    uv run --project examples/langraph_example python examples/langraph_example/worker.py
-    uv run --project examples/langraph_example python examples/langraph_example/graph.py
+    uv run --project examples/langgraph_example python examples/langgraph_example/worker.py
+    uv run --project examples/langgraph_example python examples/langgraph_example/graph.py
 """
 
 from __future__ import annotations

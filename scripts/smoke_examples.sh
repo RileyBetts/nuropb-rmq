@@ -167,21 +167,21 @@ smoke_langchain() {
   pass_suite "langchain_example"
 }
 
-# --- langraph_example (happy path; reconnect_demo is manual) ---
+# --- langgraph_example (happy path; reconnect_demo is manual) ---
 smoke_langgraph() {
   local slog gout
-  local ex_py=(uv run --project examples/langraph_example python)
+  local ex_py=(uv run --project examples/langgraph_example python)
   if ! command -v uv >/dev/null 2>&1; then
-    echo "SKIP langraph_example (uv required for example project)" >&2
+    echo "SKIP langgraph_example (uv required for example project)" >&2
     return 0
   fi
   slog="$(mktemp)"
-  "${ex_py[@]}" examples/langraph_example/worker.py >"$slog" 2>&1 &
+  "${ex_py[@]}" examples/langgraph_example/worker.py >"$slog" 2>&1 &
   local pid=$!
   sleep 1.5
-  gout="$("${ex_py[@]}" examples/langraph_example/graph.py 2>&1)" || {
+  gout="$("${ex_py[@]}" examples/langgraph_example/graph.py 2>&1)" || {
     kill_bg "$pid"
-    echo "FAIL langraph_example/graph exited non-zero" >&2
+    echo "FAIL langgraph_example/graph exited non-zero" >&2
     echo "$gout" >&2
     cat "$slog" >&2
     rm -f "$slog"
@@ -192,10 +192,10 @@ smoke_langgraph() {
   local wlog
   wlog="$(cat "$slog")"
   rm -f "$slog"
-  assert_contains "langraph_example/graph" "$gout" "extract (remote)"
-  assert_contains "langraph_example/graph" "$gout" "valid=True"
-  assert_contains "langraph_example/worker" "$wlog" "extract document_id="
-  pass_suite "langraph_example"
+  assert_contains "langgraph_example/graph" "$gout" "extract (remote)"
+  assert_contains "langgraph_example/graph" "$gout" "valid=True"
+  assert_contains "langgraph_example/worker" "$wlog" "extract document_id="
+  pass_suite "langgraph_example"
 }
 
 smoke_hello

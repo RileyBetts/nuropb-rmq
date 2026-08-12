@@ -18,14 +18,14 @@ graph.py  <--JSON-RPC result-------             worker.py
 - Sync deps **in this directory** (keeps LangGraph out of the root package):
 
 ```bash
-cd examples/langraph_example
+cd examples/langgraph_example
 uv sync
 ```
 
 From the repo root you can also run with:
 
 ```bash
-uv run --project examples/langraph_example python examples/langraph_example/…
+uv run --project examples/langgraph_example python examples/langgraph_example/…
 ```
 
 Optional env overrides: `NUROPB_RMQ_HOST`, `NUROPB_RMQ_PORT`, `NUROPB_RMQ_USER`,
@@ -36,7 +36,7 @@ Optional env overrides: `NUROPB_RMQ_HOST`, `NUROPB_RMQ_PORT`, `NUROPB_RMQ_USER`,
 **Terminal 1 — worker first:**
 
 ```bash
-uv run --project examples/langraph_example python examples/langraph_example/worker.py
+uv run --project examples/langgraph_example python examples/langgraph_example/worker.py
 ```
 
 Expected:
@@ -48,7 +48,7 @@ Expected:
 **Terminal 2 — happy-path graph:**
 
 ```bash
-uv run --project examples/langraph_example python examples/langraph_example/graph.py
+uv run --project examples/langgraph_example python examples/langgraph_example/graph.py
 ```
 
 Expected (abridged):
@@ -72,7 +72,7 @@ replays the extract node from checkpoint (fresh correlation id). The worker
 stays up.
 
 ```bash
-uv run --project examples/langraph_example python examples/langraph_example/reconnect_demo.py
+uv run --project examples/langgraph_example python examples/langgraph_example/reconnect_demo.py
 ```
 
 Expected markers: `forcing client disconnect`, `CONNECTION_LOST`, `rebound`,

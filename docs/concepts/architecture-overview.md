@@ -116,4 +116,10 @@ of the same robustness story — see queue profiles and connection config docs.
 
 - [Service mesh](service-mesh.md) — what “mesh” means here
 - [Connection config](connection-config.md)
-- Runnable mesh demo: [`examples/one_client_one_service/`](../../examples/one_client_one_service/)
+- Runnable demos:
+  [`examples/one_client_one_service/`](../../examples/one_client_one_service/)
+  (mesh RPC + events),
+  [`examples/langchain_example/`](../../examples/langchain_example/)
+  (LangChain tool),
+  [`examples/langgraph_example/`](../../examples/langgraph_example/)
+  (LangGraph remote node + reconnect)
