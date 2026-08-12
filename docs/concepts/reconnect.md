@@ -32,3 +32,5 @@ See [Architecture overview — Reconnect](architecture-overview.md#reconnect-v1)
 
 - [Service mesh](service-mesh.md) — `MeshService.rebind`
 - TLS material is re-resolved on each `connect()` when using `tls_secrets`
+- Application-owned rebind + LangGraph checkpoint replay:
+  [`examples/langgraph_example/reconnect_demo.py`](../../examples/langgraph_example/reconnect_demo.py)

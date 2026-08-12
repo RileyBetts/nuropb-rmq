@@ -21,6 +21,23 @@ Used by `examples/*/`, `scripts/smoke_examples.sh`, and many
 |----------|---------|
 | `NUROPB_RMQ_BINDING_KEY` | Override binding key for `examples/vanilla_topic/subscriber.py` (default `logs.*`) |
 
+## LangChain example
+
+Owned by [`examples/langchain_example/`](../../examples/langchain_example/) only
+(loaded from `.env` / process env by that example — **not** by the core library):
+
+| Variable | Purpose |
+|----------|---------|
+| `NUROPB_LLM_PROVIDER` | `openai` / `claude` / `grok` (example default: `claude`) |
+| `NUROPB_LLM_MODEL` | Optional model override |
+| `ANTHROPIC_API_KEY` | Claude |
+| `OPENAI_API_KEY` | OpenAI |
+| `XAI_API_KEY` | Grok (xAI OpenAI-compatible API) |
+
+See [`.env.example`](../../examples/langchain_example/.env.example) and the
+[example README](../../examples/langchain_example/README.md). Live agent needs a
+provider key; `--smoke` does not.
+
 ## Opt-in AMQPS tests
 
 | Variable | Purpose |

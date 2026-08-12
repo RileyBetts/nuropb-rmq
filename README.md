@@ -25,6 +25,7 @@ Alpha: the public API may still change. See [`CHANGELOG.md`](CHANGELOG.md).
 - Named queue profiles (`durable-at-least-once` default) and heartbeat watchdog
 - Fail-fast reconnect (`CONNECTION_LOST`); caller rebinds mesh consumers
 - Optional mesh discovery registry (announce/viewer — never a bind authority)
+- Runnable LangChain tool + LangGraph remote-node examples over the mesh
 - Throughput harness vs pika (`[bench]` extra)
 
 ## Installation
@@ -46,8 +47,13 @@ pip install "git+https://github.com/RileyBetts/nuropb-rmq.git"
 pip install "nuropb-rmq[claims] @ git+https://github.com/RileyBetts/nuropb-rmq.git"
 ```
 
-PyPI publish is not automated; the 0.1.0 GitHub release checklist lives in the
-changelog.
+PyPI publish is not automated. Prefer a tagged install for a known release:
+
+```bash
+pip install "git+https://github.com/RileyBetts/nuropb-rmq.git@v0.3.0"
+```
+
+Release checklist and notes: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Quick start
 
@@ -82,17 +88,28 @@ Prefer copy-paste demos? See **Examples** below. Stable imports:
 
 ## Examples
 
+**Transport**
+
 - [`examples/vanilla_hello/`](examples/vanilla_hello/) — durable queue publish/consume
 - [`examples/vanilla_topic/`](examples/vanilla_topic/) — topic exchange pub/sub
+
+**Mesh**
+
 - [`examples/one_client_one_service/`](examples/one_client_one_service/) — mesh RPC,
   events, and registry discovery
+
+**Framework adapters** (self-standing `uv` projects — LangChain/LangGraph deps stay
+out of the root package)
+
 - [`examples/langchain_example/`](examples/langchain_example/) — LangChain agent calling
-  a mesh service tool (self-standing `uv` project)
-- [`examples/langraph_example/`](examples/langraph_example/) — LangGraph remote
-  invoice extract over mesh RPC (self-standing `uv` project)
+  a mesh service tool (`orders.get_status`); live agent needs an LLM key,
+  `--smoke` does not
+- [`examples/langgraph_example/`](examples/langgraph_example/) — LangGraph remote
+  invoice extract over mesh RPC; optional `reconnect_demo.py` for
+  `CONNECTION_LOST` → rebind → checkpoint replay
 
 Smoke examples (with [uv](https://docs.astral.sh/uv/) after `uv sync --dev`;
-the LangChain / LangGraph suites also need `uv sync` in their example dirs):
+also `uv sync` in `examples/langchain_example` and `examples/langgraph_example`):
 
 ```bash
 ./scripts/smoke_examples.sh

@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.3.0 — 2026-08-12
+
+### Added
+
+- Examples: `langchain_example/` — LangChain agent calling mesh service tool
+  `orders.get_status` (self-standing uv project)
+- Examples: `langgraph_example/` — LangGraph remote invoice extract via
+  `remote_node` + optional reconnect/replay demo (self-standing uv project)
+- `scripts/smoke_examples.sh` covers both new suites (happy-path / `--smoke`)
+
+### Fixed
+
+- Rename misspelled example directory `langraph_example` → `langgraph_example`
+
 ## 0.2.0 — 2026-08-12
 
 ### Added

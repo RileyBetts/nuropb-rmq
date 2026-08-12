@@ -5,7 +5,7 @@
 
 Run first (with RabbitMQ up)::
 
-    uv run --project examples/langraph_example python examples/langraph_example/worker.py
+    uv run --project examples/langgraph_example python examples/langgraph_example/worker.py
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Allow running as ``python examples/langraph_example/worker.py``
+# Allow running as ``python examples/langgraph_example/worker.py``
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _common import MESH_EXCHANGE, METHODS, SERVICE_NAME, cfg, routing_key  # noqa: E402
