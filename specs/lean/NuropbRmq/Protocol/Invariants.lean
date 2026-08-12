@@ -98,7 +98,7 @@ theorem step_preserves_heartbeat_exists (s : State) (e : Event) :
 theorem inv6_decodeAccepted_implies_bounds
     (size depth frameMax maxTableDepth : Nat)
     (h : decodeAccepted size depth frameMax maxTableDepth = true) :
-    size ≤ frameMax ∧ depth ≤ maxTableDepth :=
+    size + 8 ≤ frameMax ∧ depth ≤ maxTableDepth :=
   decodeAccepted_implies_bounds size depth frameMax maxTableDepth h
 
 /-! ### Happy-path witness (spec admits a model) -/

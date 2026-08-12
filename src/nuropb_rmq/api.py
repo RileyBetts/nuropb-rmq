@@ -23,15 +23,22 @@ from nuropb_rmq.patterns.registry import (
     MeshRegistryViewer,
     ServiceAdvertisement,
 )
-from nuropb_rmq.patterns.rpc import RpcClient, RpcServer
+from nuropb_rmq.patterns.rpc import NackDelivery, RpcClient, RpcServer
 from nuropb_rmq.session.reconnect import ReconnectCoordinator
 from nuropb_rmq.session.session import Session
-from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig, TlsProfile
+from nuropb_rmq.transport.confirm import PublishNack
+from nuropb_rmq.transport.connection import (
+    AmqpConnection,
+    ConnectionBlockedError,
+    ConnectionConfig,
+    TlsProfile,
+)
 from nuropb_rmq.transport.tls_material import TlsMaterial
 
 __all__ = [
     "AmqpConnection",
     "AuthConfig",
+    "ConnectionBlockedError",
     "ConnectionConfig",
     "DEFAULT_MESH_EXCHANGE",
     "DEFAULT_REGISTRY_EXCHANGE",
@@ -44,6 +51,8 @@ __all__ = [
     "MeshRegistryPublisher",
     "MeshRegistryViewer",
     "MeshService",
+    "NackDelivery",
+    "PublishNack",
     "QueueProfile",
     "ReconnectCoordinator",
     "RpcClient",

@@ -32,12 +32,16 @@ BASIC = 60
 
 CONNECTION_START = 10
 CONNECTION_START_OK = 11
+CONNECTION_SECURE = 20
+CONNECTION_SECURE_OK = 21
 CONNECTION_TUNE = 30
 CONNECTION_TUNE_OK = 31
 CONNECTION_OPEN = 40
 CONNECTION_OPEN_OK = 41
 CONNECTION_CLOSE = 50
 CONNECTION_CLOSE_OK = 51
+CONNECTION_BLOCKED = 60
+CONNECTION_UNBLOCKED = 61
 
 CHANNEL_OPEN = 10
 CHANNEL_OPEN_OK = 11
@@ -56,10 +60,18 @@ BASIC_PUBLISH = 40
 BASIC_CONSUME = 20
 BASIC_CONSUME_OK = 21
 BASIC_CANCEL = 30
+BASIC_CANCEL_OK = 31
 BASIC_DELIVER = 60
 BASIC_ACK = 80
+BASIC_REJECT = 90
+BASIC_NACK = 120
 BASIC_QOS = 10
 BASIC_QOS_OK = 11
+
+# RabbitMQ confirm extension (class 85)
+CONFIRM = 85
+CONFIRM_SELECT = 10
+CONFIRM_SELECT_OK = 11
 
 
 def encode_method(method: Method) -> bytes:
@@ -166,10 +178,26 @@ def encode_method(method: Method) -> bytes:
     elif cid == BASIC and mid == BASIC_ACK:
         body += int(args["delivery_tag"]).to_bytes(8, "big")
         body += bytes([1 if args.get("multiple") else 0])
+    elif cid == BASIC and mid == BASIC_REJECT:
+        body += int(args["delivery_tag"]).to_bytes(8, "big")
+        body += bytes([1 if args.get("requeue") else 0])
+    elif cid == BASIC and mid == BASIC_NACK:
+        body += int(args["delivery_tag"]).to_bytes(8, "big")
+        bits = 0
+        if args.get("multiple"):
+            bits |= 1
+        if args.get("requeue"):
+            bits |= 2
+        body += bytes([bits])
+    elif cid == BASIC and mid == BASIC_CANCEL:
+        body += encode_shortstr(args.get("consumer_tag", ""))
+        body += bytes([1 if args.get("nowait") else 0])
     elif cid == BASIC and mid == BASIC_QOS:
         body += int(args.get("prefetch_size", 0)).to_bytes(4, "big")
         body += int(args.get("prefetch_count", 0)).to_bytes(2, "big")
         body += bytes([1 if args.get("global_") else 0])
+    elif cid == CONFIRM and mid == CONFIRM_SELECT:
+        body += bytes([1 if args.get("nowait") else 0])
     else:
         raise AmqpCodecError(f"encode unsupported method {cid}.{mid}")
     return body
@@ -235,6 +263,24 @@ def decode_method(payload: bytes) -> Method:
         args["exchange"], offset = decode_shortstr(payload, offset)
         args["routing_key"], offset = decode_shortstr(payload, offset)
     elif class_id == BASIC and method_id == BASIC_QOS_OK:
+        pass
+    elif class_id == BASIC and method_id == BASIC_CANCEL_OK:
+        args["consumer_tag"], _ = decode_shortstr(payload, offset)
+    elif class_id == BASIC and method_id == BASIC_ACK:
+        args["delivery_tag"] = int.from_bytes(payload[offset : offset + 8], "big")
+        args["multiple"] = bool(payload[offset + 8]) if offset + 9 <= len(payload) else False
+    elif class_id == BASIC and method_id == BASIC_NACK:
+        args["delivery_tag"] = int.from_bytes(payload[offset : offset + 8], "big")
+        bits = payload[offset + 8] if offset + 9 <= len(payload) else 0
+        args["multiple"] = bool(bits & 1)
+        args["requeue"] = bool(bits & 2)
+    elif class_id == CONNECTION and method_id == CONNECTION_BLOCKED:
+        args["reason"], _ = decode_shortstr(payload, offset)
+    elif class_id == CONNECTION and method_id == CONNECTION_UNBLOCKED:
+        pass
+    elif class_id == CONNECTION and method_id == CONNECTION_SECURE:
+        args["challenge"], _ = decode_longstr(payload, offset)
+    elif class_id == CONFIRM and method_id == CONFIRM_SELECT_OK:
         pass
     else:
         # Unknown inbound method: keep raw for diagnostics without failing closed here;
