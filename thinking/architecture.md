@@ -74,6 +74,10 @@ Single status view. Detail and rationale live in the sections linked by name.
 | mTLS / SASL EXTERNAL smoke | **Done** — client cert in cert script; opt-in `test_amqps_mtls_smoke.py`; SASL selection unit tests; never assume mTLS ⇒ passwordless |
 | Cert sourcing (PEM + PKCS#12) | **Done** — `tls_material.py`: file / bytes / PKCS#12 / `tls_secrets` hook; re-resolve each `connect()`; EXTERNAL from any cert source; key/password redaction in `repr` |
 | Queue profiles | **Done** — `config/queue_profile.py`; RpcServer/Mesh default `durable-at-least-once`; SpeC++ Config CheckSat |
+| Publisher confirms | **Done** — `confirm.select` + wait on durable/RPC publish; SpeC++/Lean PublisherConfirms |
+| connection.blocked | **Done** — fail-fast `ConnectionBlockedError`; SpeC++ connection_blocked |
+| Outbound body fragmentation | **Done** — multi BODY frames; `frame_max` = total wire size |
+| basic.nack / cancel | **Done** — settle APIs + `NackDelivery`; Lean DeliverySettle |
 | Config QueueProfile Lean | **Done** — `NuropbRmq.Config.{QueueProfile,Invariants}`; durable↔`delivery_mode` (2026-08-11) |
 | Heartbeat watchdog | **Done** — client heartbeat send + missed-peer (2× interval) → `CONNECTION_LOST` |
 | Reply-publish docs | **Done** — `scripts/reply-publish-restricted.md` + README |

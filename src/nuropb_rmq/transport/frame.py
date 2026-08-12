@@ -10,6 +10,8 @@ from typing import Any
 FRAME_END = 0xCE
 DEFAULT_FRAME_MAX = 131072
 DEFAULT_MAX_TABLE_DEPTH = 32
+# type(1) + channel(2) + size(4) + end(1) — payload must fit in frame_max - overhead.
+FRAME_OVERHEAD = 8
 
 
 class FrameType(IntEnum):
@@ -30,13 +32,24 @@ class Frame:
     payload: bytes
 
 
+def max_frame_payload(frame_max: int = DEFAULT_FRAME_MAX) -> int:
+    """Largest payload such that total wire frame size is ≤ ``frame_max``."""
+    if frame_max < FRAME_OVERHEAD:
+        raise AmqpCodecError(f"frame_max {frame_max} smaller than FRAME_OVERHEAD")
+    return frame_max - FRAME_OVERHEAD
+
+
 def encode_frame(frame: Frame, *, frame_max: int = DEFAULT_FRAME_MAX) -> bytearray:
     if frame.channel < 0 or frame.channel > 0xFFFF:
         raise AmqpCodecError(f"channel out of range: {frame.channel}")
     size = len(frame.payload)
-    if size > frame_max:
-        raise AmqpCodecError(f"frame payload {size} exceeds frame_max {frame_max}")
-    buf = bytearray(8 + size)
+    payload_max = max_frame_payload(frame_max)
+    if size > payload_max:
+        raise AmqpCodecError(
+            f"frame payload {size} exceeds max payload {payload_max} "
+            f"(frame_max={frame_max})"
+        )
+    buf = bytearray(FRAME_OVERHEAD + size)
     struct.pack_into("!BHI", buf, 0, int(frame.frame_type), frame.channel, size)
     buf[7 : 7 + size] = frame.payload
     buf[-1] = FRAME_END
@@ -51,8 +64,8 @@ def decode_frame(
 ) -> tuple[Frame, int]:
     """Decode one frame from ``data[offset:]``.
 
-    Validates the length prefix against ``frame_max`` *before* accepting the
-    payload (never allocates proportional to an unvalidated length).
+    Validates the length prefix against ``frame_max - FRAME_OVERHEAD`` *before*
+    accepting the payload (never allocates proportional to an unvalidated length).
     Accepts ``bytearray`` / ``memoryview`` so callers can decode without
     copying the entire receive buffer.
     """
@@ -66,8 +79,11 @@ def decode_frame(
         raise AmqpCodecError(f"unknown frame type {frame_type_i}") from exc
     channel = int.from_bytes(view[offset + 1 : offset + 3], "big")
     size = int.from_bytes(view[offset + 3 : offset + 7], "big")
-    if size < 0 or size > frame_max:
-        raise AmqpCodecError(f"frame size {size} exceeds frame_max {frame_max}")
+    payload_max = max_frame_payload(frame_max)
+    if size < 0 or size > payload_max:
+        raise AmqpCodecError(
+            f"frame size {size} exceeds max payload {payload_max} (frame_max={frame_max})"
+        )
     end = offset + 7 + size
     if len(view) < end + 1:
         raise AmqpCodecError("incomplete frame payload")
@@ -127,12 +143,46 @@ def encode_field_value(value: Any, *, depth: int = 0, max_depth: int = DEFAULT_M
         if -0x80000000 <= value <= 0x7FFFFFFF:
             return b"I" + value.to_bytes(4, "big", signed=True)
         return b"L" + value.to_bytes(8, "big", signed=True)
+    if isinstance(value, float):
+        return b"d" + struct.pack(">d", value)
     if isinstance(value, str):
         return b"S" + encode_longstr(value)
     if isinstance(value, bytes):
         return b"x" + encode_longstr(value)
     if isinstance(value, dict):
         return b"F" + encode_table(value, depth=depth + 1, max_depth=max_depth)
+    # Pre-decoded AMQP decimal as (scale, value) — before list/tuple array handling.
+    if (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and isinstance(value[0], int)
+        and isinstance(value[1], int)
+    ):
+        scale, ival = value
+        return b"D" + bytes([int(scale) & 0xFF]) + int(ival).to_bytes(4, "big", signed=True)
+    if isinstance(value, list):
+        parts = bytearray()
+        for item in value:
+            parts += encode_field_value(item, depth=depth + 1, max_depth=max_depth)
+        if len(parts) > DEFAULT_FRAME_MAX:
+            raise AmqpCodecError(f"array length {len(parts)} exceeds ceiling")
+        return b"A" + len(parts).to_bytes(4, "big") + bytes(parts)
+    # decimal.Decimal → AMQP 'D'; datetime → POSIX seconds 'T'
+    from datetime import datetime
+    from decimal import Decimal
+
+    if isinstance(value, Decimal):
+        sign, digits, exp = value.as_tuple()
+        if not isinstance(exp, int):
+            raise AmqpCodecError("Decimal infinity/NaN not supported in field tables")
+        scale = -exp if exp < 0 else 0
+        int_val = int(value.scaleb(scale))
+        if not (-0x80000000 <= int_val <= 0x7FFFFFFF):
+            raise AmqpCodecError("Decimal magnitude exceeds 32-bit AMQP decimal")
+        return b"D" + bytes([scale & 0xFF]) + int_val.to_bytes(4, "big", signed=True)
+    if isinstance(value, datetime):
+        ts = int(value.timestamp())
+        return b"T" + ts.to_bytes(8, "big")
     raise AmqpCodecError(f"unsupported field type {type(value)!r}")
 
 

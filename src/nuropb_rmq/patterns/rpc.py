@@ -19,6 +19,7 @@ from nuropb_rmq.patterns.errors import (
     ID_COLLISION,
     INVALID_ENVELOPE,
     INVALID_ID,
+    PUBLISH_NACK,
     REQUEST_TIMEOUT,
     RpcError,
     make_error_data,
@@ -26,9 +27,23 @@ from nuropb_rmq.patterns.errors import (
 from nuropb_rmq.patterns.mesh import MeshService
 from nuropb_rmq.session.ids import IdCollisionError, InvalidIdError
 from nuropb_rmq.session.session import Session
-from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig, IncomingMessage
+from nuropb_rmq.transport.confirm import PublishNack
+from nuropb_rmq.transport.connection import (
+    AmqpConnection,
+    ConnectionBlockedError,
+    ConnectionConfig,
+    IncomingMessage,
+)
 
 Handler = Callable[[str, Any], Awaitable[Any] | Any]
+
+
+class NackDelivery(Exception):
+    """Raise from an RpcServer handler to settle with basic.nack (default: no requeue)."""
+
+    def __init__(self, *, requeue: bool = False, message: str = "poison message") -> None:
+        self.requeue = requeue
+        super().__init__(message)
 
 
 class RpcClient:
@@ -82,14 +97,36 @@ class RpcClient:
         }
         if claims_token is not None:
             props = attach_claims_headers(props, claims_token)
-        await self.session.conn.basic_publish(
-            self.session.channel_id,
-            body,
-            exchange=exchange,
-            routing_key=target,
-            properties=props,
-            queue_profile=self.queue_profile,
-        )
+        try:
+            await self.session.conn.basic_publish(
+                self.session.channel_id,
+                body,
+                exchange=exchange,
+                routing_key=target,
+                properties=props,
+                queue_profile=self.queue_profile,
+            )
+        except (PublishNack, ConnectionBlockedError) as exc:
+            self.session.correlation.fail(rid, exc)
+            if isinstance(exc, PublishNack):
+                raise RpcError(
+                    PUBLISH_NACK,
+                    str(exc),
+                    make_error_data(
+                        code=PUBLISH_NACK, retryable=True, correlation_id=rid, method=method
+                    ),
+                    id=rid,
+                ) from exc
+            from nuropb_rmq.patterns.errors import CONNECTION_BLOCKED
+
+            raise RpcError(
+                CONNECTION_BLOCKED,
+                str(exc),
+                make_error_data(
+                    code=CONNECTION_BLOCKED, retryable=True, correlation_id=rid, method=method
+                ),
+                id=rid,
+            ) from exc
         try:
             msg: IncomingMessage = await self.session.wait_reply(rid, fut)
         except TimeoutError as exc:
@@ -226,6 +263,11 @@ class RpcServer:
             if asyncio.iscoroutine(result):
                 result = await result
             out = encode_result(result, request_id)
+        except NackDelivery as exc:
+            await self.conn.basic_nack(
+                self.channel_id, msg.delivery_tag, requeue=exc.requeue
+            )
+            return
         except RpcError as exc:
             request_id = corr if isinstance(corr, str) else exc.id
             out = encode_error(
@@ -256,5 +298,6 @@ class RpcServer:
                 routing_key=reply_to,
                 properties=props,
                 drain=False,
+                confirm=False,
             )
         await self.conn.basic_ack(self.channel_id, msg.delivery_tag)

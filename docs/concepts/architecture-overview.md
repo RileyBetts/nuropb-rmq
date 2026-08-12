@@ -109,6 +109,9 @@ flowchart LR
 There is no silent park-and-retry of in-flight RPCs. After reconnect you must
 rebind mesh consumers and restart servers. See [Reconnect](reconnect.md).
 
+Publisher confirms and `connection.blocked` fail-fast (no silent stall) are part
+of the same robustness story — see queue profiles and connection config docs.
+
 ## Next
 
 - [Service mesh](service-mesh.md) — what “mesh” means here

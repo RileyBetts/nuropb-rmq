@@ -26,8 +26,18 @@ server = RpcServer(cfg, queue="orders", handler=handler, queue_profile=durable_c
 - TTL and dead-letter exchange must be set together when either is used.
 - **Session reply queues** stay exclusive / auto-delete / ephemeral — they do
   not use the work-queue profile.
+- **Publisher confirms:** publishing with a durable `QueueProfile` (and Session/RPC
+  requests) enables RabbitMQ `confirm.select` and waits for broker ack/nack before
+  `basic_publish` returns. Persistent bits alone are not a producer-side durability
+  guarantee.
+- **Poison messages:** handlers may raise `NackDelivery` (or call `basic_nack` with
+  `requeue=False`) so the broker can dead-letter via the profile DLX — TTL /
+  delivery-limit are not the only path.
 
 ## Related
 
 - Config / Lean notes: `thinking/architecture.md` (Configuration Strategy)
 - Public imports: `durable_at_least_once`, `durable_classic`, …
+- Non-goals (deliberate): `basic.get`, Tx class, Access, channel.flow,
+  exchange/queue delete/unbind/purge — continuous consume + declare-own-topology
+  only.

@@ -4,7 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
-## 0.1.0 — 2026-08-11
+### Added
+
+- Publisher confirms (`confirm.select`); durable profile / RPC publishes wait for
+  broker ack/nack (`PublishNack`, `PUBLISH_NACK`)
+- `connection.blocked` / `unblocked` handling with fail-fast publish refusal
+  (`ConnectionBlockedError`); unexpected `connection.secure` rejects
+- Outbound BODY frame fragmentation; `frame_max` bounds total wire size (payload+8)
+- `basic.nack` / `basic.reject` / `basic.cancel`; `NackDelivery` for RpcServer poison path
+- Field-table encoder support for float, list/array, Decimal, datetime
+- SpeC++ + Lean: frame bounds, publisher confirms, delivery settle
+
+### Changed
+
+- Docs: queue-profile durability now documents confirms + nack→DLX; explicit AMQP non-goals
 
 First tagged **alpha** library surface (Apache-2.0). Public API is relatively
 stable; expect polish and docs before a broader 0.1.x / PyPI push.

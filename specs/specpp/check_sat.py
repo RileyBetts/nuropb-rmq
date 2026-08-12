@@ -18,6 +18,12 @@ ROOT = Path(__file__).resolve().parent
 CHECKS: list[tuple[str, str, str]] = [
     ("Protocol", "connection_channel_sm.smt2", "sat"),
     ("Protocol", "connection_channel_sm_negatives.smt2", "unsat"),
+    ("Protocol", "frame_bounds.smt2", "sat"),
+    ("Protocol", "frame_bounds_negatives.smt2", "unsat"),
+    ("Protocol", "publisher_confirms.smt2", "sat"),
+    ("Protocol", "publisher_confirms_negatives.smt2", "unsat"),
+    ("Protocol", "connection_blocked.smt2", "sat"),
+    ("Protocol", "connection_blocked_negatives.smt2", "unsat"),
     ("Session", "correlation.smt2", "sat"),
     ("Session", "correlation_negatives.smt2", "unsat"),
     ("Session", "phase2_reconnect.smt2", "sat"),
