@@ -88,9 +88,11 @@ Prefer copy-paste demos? See **Examples** below. Stable imports:
   events, and registry discovery
 - [`examples/langchain_example/`](examples/langchain_example/) — LangChain agent calling
   a mesh service tool (self-standing `uv` project)
+- [`examples/langraph_example/`](examples/langraph_example/) — LangGraph remote
+  invoice extract over mesh RPC (self-standing `uv` project)
 
 Smoke examples (with [uv](https://docs.astral.sh/uv/) after `uv sync --dev`;
-the LangChain suite also needs `uv sync` in `examples/langchain_example`):
+the LangChain / LangGraph suites also need `uv sync` in their example dirs):
 
 ```bash
 ./scripts/smoke_examples.sh

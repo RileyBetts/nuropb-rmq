@@ -167,8 +167,40 @@ smoke_langchain() {
   pass_suite "langchain_example"
 }
 
+# --- langraph_example (happy path; reconnect_demo is manual) ---
+smoke_langgraph() {
+  local slog gout
+  local ex_py=(uv run --project examples/langraph_example python)
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "SKIP langraph_example (uv required for example project)" >&2
+    return 0
+  fi
+  slog="$(mktemp)"
+  "${ex_py[@]}" examples/langraph_example/worker.py >"$slog" 2>&1 &
+  local pid=$!
+  sleep 1.5
+  gout="$("${ex_py[@]}" examples/langraph_example/graph.py 2>&1)" || {
+    kill_bg "$pid"
+    echo "FAIL langraph_example/graph exited non-zero" >&2
+    echo "$gout" >&2
+    cat "$slog" >&2
+    rm -f "$slog"
+    return 1
+  }
+  sleep 0.3
+  kill_bg "$pid"
+  local wlog
+  wlog="$(cat "$slog")"
+  rm -f "$slog"
+  assert_contains "langraph_example/graph" "$gout" "extract (remote)"
+  assert_contains "langraph_example/graph" "$gout" "valid=True"
+  assert_contains "langraph_example/worker" "$wlog" "extract document_id="
+  pass_suite "langraph_example"
+}
+
 smoke_hello
 smoke_topic
 smoke_mesh
 smoke_langchain
+smoke_langgraph
 echo "All example smokes passed."
