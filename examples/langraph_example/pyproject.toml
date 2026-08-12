@@ -1,0 +1,15 @@
+[project]
+name = "nuropb-rmq-langgraph-example"
+version = "0.1.0"
+description = "Self-standing LangGraph remote invoice extraction over nuropb-rmq"
+requires-python = ">=3.11"
+dependencies = [
+  "langgraph>=0.2",
+  "nuropb-rmq",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+nuropb-rmq = { path = "../..", editable = true }
