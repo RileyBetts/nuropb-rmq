@@ -11,7 +11,7 @@ from typing import Any
 from nuropb_rmq.config.queue_profile import DLQ_TERMINAL, QueueProfile
 from nuropb_rmq.patterns.envelope import encode_error
 from nuropb_rmq.patterns.errors import REQUEST_TIMEOUT, make_error_data
-from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig
+from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig, ReturnedMessage
 
 
 class DlqTimeoutProcessor:
@@ -29,6 +29,12 @@ class DlqTimeoutProcessor:
         self.queue_profile = queue_profile or DLQ_TERMINAL
         self._task: asyncio.Task[None] | None = None
         self._running = False
+        self.unroutable_replies = 0
+        self.conn.config.on_basic_return = self._on_return
+
+    def _on_return(self, _msg: ReturnedMessage) -> None:
+        """Count unroutable timeout replies (reply_to gone); drop outcome unchanged."""
+        self.unroutable_replies += 1
 
     async def start(self) -> None:
         await self.conn.connect()
@@ -77,6 +83,7 @@ class DlqTimeoutProcessor:
                         routing_key=reply_to,
                         properties=props,
                         drain=False,
+                        mandatory=True,
                     )
                 await self.conn.basic_ack(self.channel_id, msg.delivery_tag)
         except asyncio.CancelledError:

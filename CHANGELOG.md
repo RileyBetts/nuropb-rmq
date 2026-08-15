@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.5.0 — 2026-08-15
+
+### Added
+
+- `basic.return` / optional `mandatory` on `basic_publish`; unroutable publishes
+  raise `PublishReturned` (distinct from `PublishNack` / confirms)
+- `RpcClient` publishes with `mandatory=true` so a missing target is an error,
+  not a silent hang (`PUBLISH_RETURNED`)
+- `DlqTimeoutProcessor` publishes timeout replies with `mandatory=true` and
+  counts unroutable drops (`unroutable_replies`) without changing the drop
+- AMQP content properties `timestamp`, `type`, `user_id`, `app_id`, `cluster_id`
+- `AmqpConnection.update_secret` (`connection.update-secret` thin round-trip)
+- SpeC++ / Lean: `basic_return` (return ≠ confirm nack)
+- Docs: retry-authority on the service mesh page; LangGraph operator guide
+  (`docs/guides/langgraph.md`); adapters remain example-local
+- Unit-test coverage measurement (`pytest-cov`) in CI — `--cov-fail-under=50`
+  on the unit lane (regression floor; integration job covers live transport)
+- Alpha→beta criteria in `CONTRIBUTING.md`
+
+### Changed
+
+- Queue-profile docs: unroutable/mandatory vs confirms; non-goals unchanged
+  (`basic.get`, Tx, Access, `channel.flow`, delete/unbind/purge)
+
 ## 0.4.1 — 2026-08-12
 
 ### Added
@@ -91,6 +115,6 @@ For a GitHub + PyPI release:
 3. Promote `development` → `main` (merge commit)
 4. `git tag -a vX.Y.Z -m "nuropb-rmq X.Y.Z"` and `git push origin vX.Y.Z`
    — [`.github/workflows/publish.yml`](.github/workflows/publish.yml) builds and uploads to PyPI
-5. Optionally `gh release create vX.Y.Z --notes-file …` (or paste the matching CHANGELOG section)
+5. `gh release create vX.Y.Z --notes-file …` (or paste the matching CHANGELOG section)
 
 One-time Trusted Publisher setup: see [`CONTRIBUTING.md`](CONTRIBUTING.md#publishing).

@@ -33,6 +33,13 @@ server = RpcServer(cfg, queue="orders", handler=handler, queue_profile=durable_c
 - **Poison messages:** handlers may raise `NackDelivery` (or call `basic_nack` with
   `requeue=False`) so the broker can dead-letter via the profile DLX — TTL /
   delivery-limit are not the only path.
+- **Unroutable publishes:** `basic_publish(..., mandatory=True)` asks the broker
+  for `basic.return` when the message cannot be routed. That signal is
+  **`PublishReturned`**, not `PublishNack` — confirms still mean “the broker
+  accepted the message.” `RpcClient` and `DlqTimeoutProcessor` set
+  `mandatory=true` so a missing queue or gone `reply_to` is observable. A DLQ
+  timeout reply that cannot be routed is still dropped; the return is counted
+  only (`DlqTimeoutProcessor.unroutable_replies`).
 
 ## Related
 

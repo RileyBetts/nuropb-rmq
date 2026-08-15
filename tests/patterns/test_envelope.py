@@ -17,6 +17,7 @@ from nuropb_rmq.patterns.envelope import (
     encode_result,
 )
 from nuropb_rmq.patterns.errors import (
+    PUBLISH_RETURNED,
     REQUEST_TIMEOUT,
     RpcError,
     allowlist_error_data,
@@ -80,3 +81,11 @@ def test_error_roundtrip_and_allowlist() -> None:
     assert ei.value.data is not None
     assert "hostname" not in ei.value.data
     assert ei.value.data.get("code_name") == "REQUEST_TIMEOUT"
+
+
+def test_publish_returned_error_data() -> None:
+    data = make_error_data(code=PUBLISH_RETURNED, retryable=True, method="orders.ping")
+    assert data is not None
+    assert data["code_name"] == "PUBLISH_RETURNED"
+    assert data["retryable"] is True
+    assert data["method"] == "orders.ping"

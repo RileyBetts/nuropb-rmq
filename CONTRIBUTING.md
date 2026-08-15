@@ -44,7 +44,7 @@ uv sync --dev
 uv lock --check
 uv run ruff check src tests
 uv run python specs/specpp/check_sat.py
-uv run pytest -q -m "not integration and not benchmark and not fuzz"
+uv run pytest -q -m "not integration and not benchmark and not fuzz" --cov=nuropb_rmq --cov-fail-under=50
 HYPOTHESIS_PROFILE=ci uv run pytest -q -m fuzz
 uv sync --dev --extra claims && uv run pytest -q tests/patterns/test_context.py
 # with RabbitMQ on 5672 (or set NUROPB_RMQ_HOST / NUROPB_RMQ_PORT):
@@ -88,3 +88,22 @@ must match `[project].version` in `pyproject.toml`.
 2. In this GitHub repo: Settings → Environments → create `pypi` (optional
    protection rules are up to maintainers).
 3. Confirm the package name is available / owned on PyPI before the first tag.
+
+## Alpha → beta
+
+Stay on **Alpha** (`Development Status :: 3 - Alpha`) until all of the following
+are true. Park-and-retry across reconnect stays deferred (fail-fast is v1).
+
+- `basic.return` / mandatory publish shipped and tested (done in 0.5.0)
+- At least one external operator has run AMQPS + restricted reply-publish
+  (`scripts/reply-publish-restricted.md`)
+- Public API freeze note: no silent additions/renames in `nuropb_rmq.api`
+  without a changelog entry
+- Unit coverage measured in CI (`pytest-cov`, `--cov-fail-under=50` on the unit
+  lane — a regression floor, not a vanity target; live transport/RPC is
+  exercised in the integration job)
+- No new claims beyond protocol/session proof scope (SpeC++ / Lean)
+
+TTL anti-enumeration *timing* tests and management-API permission audits are
+soft follow-ups, not beta blockers.
+

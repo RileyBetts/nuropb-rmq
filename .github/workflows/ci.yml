@@ -28,7 +28,7 @@ jobs:
       - name: SpeC++ CheckSat
         run: uv run python specs/specpp/check_sat.py
       - name: Unit tests
-        run: uv run pytest -q -m "not integration and not benchmark and not fuzz"
+        run: uv run pytest -q -m "not integration and not benchmark and not fuzz" --cov=nuropb_rmq --cov-report=term-missing --cov-fail-under=50
       - name: Frame decode fuzz
         env:
           HYPOTHESIS_PROFILE: ci

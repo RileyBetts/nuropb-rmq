@@ -22,5 +22,11 @@ python specs/specpp/check_sat.py
 | `Pattern/mesh_claims_negatives.smt2` | **unsat** |
 | `Config/queue_profile.smt2` | **sat** |
 | `Config/queue_profile_negatives.smt2` | **unsat** |
+| `Protocol/publisher_confirms.smt2` | **sat** |
+| `Protocol/publisher_confirms_negatives.smt2` | **unsat** |
+| `Protocol/connection_blocked.smt2` | **sat** |
+| `Protocol/connection_blocked_negatives.smt2` | **unsat** |
+| `Protocol/basic_return.smt2` | **sat** |
+| `Protocol/basic_return_negatives.smt2` | **unsat** |
 
 **UNKNOWN is a hard failure** (no waiver).

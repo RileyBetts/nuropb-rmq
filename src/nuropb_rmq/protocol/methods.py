@@ -45,6 +45,8 @@ CONNECTION_CLOSE = 50
 CONNECTION_CLOSE_OK = 51
 CONNECTION_BLOCKED = 60
 CONNECTION_UNBLOCKED = 61
+CONNECTION_UPDATE_SECRET = 70
+CONNECTION_UPDATE_SECRET_OK = 71
 
 CHANNEL_OPEN = 10
 CHANNEL_OPEN_OK = 11
@@ -60,6 +62,7 @@ EXCHANGE_DECLARE = 10
 EXCHANGE_DECLARE_OK = 11
 
 BASIC_PUBLISH = 40
+BASIC_RETURN = 50
 BASIC_CONSUME = 20
 BASIC_CONSUME_OK = 21
 BASIC_CANCEL = 30
@@ -102,6 +105,12 @@ def encode_method(method: Method) -> bytes:
         body += int(args.get("method_id", 0)).to_bytes(2, "big")
     elif cid == CONNECTION and mid == CONNECTION_CLOSE_OK:
         pass
+    elif cid == CONNECTION and mid == CONNECTION_UPDATE_SECRET:
+        secret = args.get("new_secret", b"")
+        if isinstance(secret, str):
+            secret = secret.encode("utf-8")
+        body += encode_longstr(secret)
+        body += encode_shortstr(args.get("reason", ""))
     elif cid == CHANNEL and mid == CHANNEL_OPEN:
         body += encode_shortstr(args.get("out_of_band", ""))
     elif cid == CHANNEL and mid == CHANNEL_OPEN_OK:
@@ -163,6 +172,11 @@ def encode_method(method: Method) -> bytes:
         if args.get("immediate"):
             bits |= 2
         body += bytes([bits])
+    elif cid == BASIC and mid == BASIC_RETURN:
+        body += int(args.get("reply_code", 312)).to_bytes(2, "big")
+        body += encode_shortstr(args.get("reply_text", ""))
+        body += encode_shortstr(args.get("exchange", ""))
+        body += encode_shortstr(args.get("routing_key", ""))
     elif cid == BASIC and mid == BASIC_CONSUME:
         body += int(args.get("ticket", 0)).to_bytes(2, "big")
         body += encode_shortstr(args.get("queue", ""))
@@ -283,6 +297,14 @@ def decode_method(payload: bytes) -> Method:
         pass
     elif class_id == CONNECTION and method_id == CONNECTION_SECURE:
         args["challenge"], _ = decode_longstr(payload, offset)
+    elif class_id == CONNECTION and method_id == CONNECTION_UPDATE_SECRET_OK:
+        pass
+    elif class_id == BASIC and method_id == BASIC_RETURN:
+        args["reply_code"] = int.from_bytes(payload[offset : offset + 2], "big")
+        offset += 2
+        args["reply_text"], offset = decode_shortstr(payload, offset)
+        args["exchange"], offset = decode_shortstr(payload, offset)
+        args["routing_key"], offset = decode_shortstr(payload, offset)
     elif class_id == CONFIRM and method_id == CONFIRM_SELECT_OK:
         pass
     else:
@@ -333,6 +355,24 @@ def encode_content_header(
     if "message_id" in props:
         flags |= 1 << 7
         prop_body += encode_shortstr(props["message_id"])
+    if "timestamp" in props:
+        flags |= 1 << 6
+        ts = props["timestamp"]
+        if hasattr(ts, "timestamp"):
+            ts = int(ts.timestamp())
+        prop_body += int(ts).to_bytes(8, "big")
+    if "type" in props:
+        flags |= 1 << 5
+        prop_body += encode_shortstr(props["type"])
+    if "user_id" in props:
+        flags |= 1 << 4
+        prop_body += encode_shortstr(props["user_id"])
+    if "app_id" in props:
+        flags |= 1 << 3
+        prop_body += encode_shortstr(props["app_id"])
+    if "cluster_id" in props:
+        flags |= 1 << 2
+        prop_body += encode_shortstr(props["cluster_id"])
     return (
         class_id.to_bytes(2, "big")
         + (0).to_bytes(2, "big")  # weight
@@ -370,4 +410,17 @@ def decode_content_header(payload: bytes) -> tuple[int, int, dict[str, Any]]:
         props["expiration"], offset = decode_shortstr(payload, offset)
     if flags & (1 << 7):
         props["message_id"], offset = decode_shortstr(payload, offset)
+    if flags & (1 << 6):
+        if offset + 8 > len(payload):
+            raise AmqpCodecError("truncated timestamp")
+        props["timestamp"] = int.from_bytes(payload[offset : offset + 8], "big")
+        offset += 8
+    if flags & (1 << 5):
+        props["type"], offset = decode_shortstr(payload, offset)
+    if flags & (1 << 4):
+        props["user_id"], offset = decode_shortstr(payload, offset)
+    if flags & (1 << 3):
+        props["app_id"], offset = decode_shortstr(payload, offset)
+    if flags & (1 << 2):
+        props["cluster_id"], offset = decode_shortstr(payload, offset)
     return class_id, body_size, props

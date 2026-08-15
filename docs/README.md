@@ -27,6 +27,7 @@ you need the decision ledger or formal-methods correspondence.
 - [Cloud and enterprise AMQPS](guides/cloud-and-enterprise-amqps.md)
 - [Local AMQPS harness](guides/amqps-local.md)
 - [Broker permissions](guides/broker-permissions.md) — reply-publish + mesh-bind
+- [Using nuropb-rmq under LangGraph](guides/langgraph.md) — retry authority, adapters stay in examples
 
 ## Reference
 

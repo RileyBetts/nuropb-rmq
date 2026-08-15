@@ -83,8 +83,9 @@ Expected markers: `forcing client disconnect`, `CONNECTION_LOST`, `rebound`,
 - **Idempotent remote handlers** — keyed by `document_id`. Mesh at-least-once
   redelivery and LangGraph replay can run extract more than once.
 - **Retry authority** — mesh redelivery while the client reply queue exists;
-  LangGraph checkpoint replay only after `CONNECTION_LOST`. The adapter does
-  not local-retry.
+  LangGraph checkpoint replay only after `CONNECTION_LOST`. The adapter
+  does not local-retry. Operator guide:
+  [`docs/guides/langgraph.md`](../../docs/guides/langgraph.md).
 - **State boundary** — `reads=` / `writes=` on `remote_node`; reject undeclared
   or non-JSON values (no coerce).
 
