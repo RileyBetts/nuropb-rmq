@@ -10,6 +10,7 @@ import os
 import ssl
 import tempfile
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -50,6 +51,47 @@ class ConnectionBlockedError(ProtocolError):
     """Publish refused because the broker sent connection.blocked."""
 
 
+class PublishReturned(Exception):
+    """Broker returned an unroutable mandatory publish (``basic.return``).
+
+    Distinct from ``PublishNack``: confirms answer whether the broker accepted
+    the message; return answers whether it was routable.
+    """
+
+    def __init__(
+        self,
+        reply_code: int,
+        reply_text: str,
+        *,
+        exchange: str = "",
+        routing_key: str = "",
+        body: bytes = b"",
+        properties: dict[str, Any] | None = None,
+    ) -> None:
+        self.reply_code = reply_code
+        self.reply_text = reply_text
+        self.exchange = exchange
+        self.routing_key = routing_key
+        self.body = body
+        self.properties = properties or {}
+        super().__init__(
+            f"basic.return {reply_code} {reply_text!r} "
+            f"exchange={exchange!r} routing_key={routing_key!r}"
+        )
+
+
+@dataclass
+class ReturnedMessage:
+    """Unroutable mandatory publish delivered via ``basic.return`` + content."""
+
+    reply_code: int
+    reply_text: str
+    exchange: str
+    routing_key: str
+    body: bytes
+    properties: dict[str, Any]
+
+
 class TlsProfile:
     VERIFY_FULL = "tls-verify-full"
     VERIFY_CUSTOM_SAN = "tls-verify-custom-san"
@@ -85,6 +127,8 @@ class ConnectionConfig:
     # Optional connection.blocked / unblocked callbacks (reason str for blocked).
     on_connection_blocked: Callable[[str], None] | None = None
     on_connection_unblocked: Callable[[], None] | None = None
+    # Observability for unroutable mandatory publishes (distinct from confirms).
+    on_basic_return: Callable[[ReturnedMessage], None] | None = None
 
     def __repr__(self) -> str:
         def _pem(label: str, data: bytes | str | None) -> str:
@@ -144,6 +188,9 @@ class AmqpConnection:
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._publish_blocked: bool = False
         self._confirm: dict[int, ConfirmTracker] = {}
+        self._mandatory_tags: dict[int, deque[int]] = {}
+        self._return_by_tag: dict[int, dict[int, ReturnedMessage]] = {}
+        self._returns: asyncio.Queue[ReturnedMessage | object] = asyncio.Queue()
 
     def set_on_loss(self, callback: Callable[[BaseException], None] | None) -> None:
         """Register callback invoked once when the connection is lost."""
@@ -191,7 +238,7 @@ class AmqpConnection:
                 m.CONNECTION,
                 m.CONNECTION_START_OK,
                 {
-                    "client_properties": {"product": "nuropb-rmq", "version": "0.4.1"},
+                    "client_properties": {"product": "nuropb-rmq", "version": "0.5.0"},
                     "mechanism": mechanism,
                     "response": response,
                     "locale": "en_US",
@@ -353,6 +400,8 @@ class AmqpConnection:
         ch = ChannelStateMachine(channel_id)
         self._channels[channel_id] = ch
         self._confirm[channel_id] = ConfirmTracker()
+        self._mandatory_tags[channel_id] = deque()
+        self._return_by_tag[channel_id] = {}
         ch.on_open_sent()
         await self._send_method(channel_id, Method(m.CHANNEL, m.CHANNEL_OPEN, {"out_of_band": ""}))
         await self._expect(channel_id, m.CHANNEL, m.CHANNEL_OPEN_OK)
@@ -502,6 +551,7 @@ class AmqpConnection:
         drain: bool = True,
         queue_profile: QueueProfile | None = None,
         confirm: bool | None = None,
+        mandatory: bool = False,
     ) -> None:
         ch = self._channels[channel_id]
         ch.assert_open_for_ops()
@@ -526,9 +576,12 @@ class AmqpConnection:
                 await self.confirm_select(channel_id)
                 tracker = self._confirm[channel_id]
             assert tracker is not None
-            _tag, confirm_fut = tracker.register()
+            tag, confirm_fut = tracker.register()
         else:
-            confirm_fut = None
+            tag, confirm_fut = None, None
+
+        if mandatory and tag is not None:
+            self._mandatory_tags.setdefault(channel_id, deque()).append(tag)
 
         # Coalesce method + content-header + body frames into one write burst.
         self._write_frame(
@@ -542,7 +595,7 @@ class AmqpConnection:
                         {
                             "exchange": exchange,
                             "routing_key": routing_key,
-                            "mandatory": False,
+                            "mandatory": mandatory,
                         },
                     )
                 ),
@@ -563,6 +616,40 @@ class AmqpConnection:
             await self._drain()
         if confirm_fut is not None:
             await confirm_fut
+            if mandatory and tag is not None:
+                returned = self._return_by_tag.get(channel_id, {}).pop(tag, None)
+                if returned is not None:
+                    raise PublishReturned(
+                        returned.reply_code,
+                        returned.reply_text,
+                        exchange=returned.exchange,
+                        routing_key=returned.routing_key,
+                        body=returned.body,
+                        properties=returned.properties,
+                    )
+
+    async def update_secret(self, new_secret: str | bytes, reason: str = "") -> None:
+        """Rotate the connection authentication secret (AMQP ``connection.update-secret``).
+
+        Thin round-trip: send the new secret, wait for ``update-secret-ok``, then
+        store it on ``ConnectionConfig.password`` for subsequent reconnects.
+        """
+        if not self.sm.is_open:
+            raise ProtocolError("connection not open")
+        self.sm.assert_can_send_connection_method(m.CONNECTION_UPDATE_SECRET)
+        await self._send_method(
+            0,
+            Method(
+                m.CONNECTION,
+                m.CONNECTION_UPDATE_SECRET,
+                {"new_secret": new_secret, "reason": reason},
+            ),
+        )
+        await self._expect(0, m.CONNECTION, m.CONNECTION_UPDATE_SECRET_OK)
+        if isinstance(new_secret, bytes):
+            self.config.password = new_secret.decode("utf-8")
+        else:
+            self.config.password = new_secret
 
     async def basic_consume(self, channel_id: int, queue: str, *, consumer_tag: str = "") -> str:
         ch = self._channels[channel_id]
@@ -684,6 +771,19 @@ class AmqpConnection:
         assert isinstance(item, IncomingMessage)
         return item
 
+    async def receive_return(self, timeout: float | None = 5.0) -> ReturnedMessage:
+        """Wait for a ``basic.return`` (unroutable mandatory publish)."""
+        if self._lost_exc is not None:
+            raise self._lost_exc
+        if timeout is None:
+            item = await self._returns.get()
+        else:
+            item = await asyncio.wait_for(self._returns.get(), timeout=timeout)
+        if item is _LOSS_SENTINEL:
+            raise self._lost_exc or ConnectionLost("connection lost")
+        assert isinstance(item, ReturnedMessage)
+        return item
+
     async def force_drop(self) -> None:
         """Abruptly drop the TCP connection (tests / simulated network loss)."""
         self._closed = True
@@ -711,8 +811,14 @@ class AmqpConnection:
         self._fail_waiters()
         for tracker in self._confirm.values():
             tracker.fail_all(exc)
+        self._mandatory_tags.clear()
+        self._return_by_tag.clear()
         try:
             self._deliveries.put_nowait(_LOSS_SENTINEL)
+        except Exception:
+            pass
+        try:
+            self._returns.put_nowait(_LOSS_SENTINEL)
         except Exception:
             pass
         if self._on_loss is not None:
@@ -851,12 +957,26 @@ class AmqpConnection:
                             continue
                         if (
                             method.class_id == m.BASIC
+                            and method.method_id == m.BASIC_RETURN
+                        ):
+                            pending_content[frame.channel] = {
+                                "return": method,
+                                "properties": {},
+                                "body": bytearray(),
+                                "remaining": None,
+                            }
+                            continue
+                        if (
+                            method.class_id == m.BASIC
                             and method.method_id in (m.BASIC_ACK, m.BASIC_NACK)
                         ):
                             tracker = self._confirm.get(frame.channel)
                             if tracker is not None and tracker.enabled:
                                 tag = int(method.args["delivery_tag"])
                                 multiple = bool(method.args.get("multiple"))
+                                self._clear_mandatory_tags(
+                                    frame.channel, tag, multiple=multiple
+                                )
                                 if method.method_id == m.BASIC_ACK:
                                     tracker.on_ack(tag, multiple=multiple)
                                 else:
@@ -884,7 +1004,7 @@ class AmqpConnection:
                         class_id, body_size, props = decode_content_header(frame.payload)
                         slot = pending_content.get(frame.channel)
                         if slot is None:
-                            self.sm.reject("content header without deliver")
+                            self.sm.reject("content header without deliver or return")
                         slot["properties"] = props
                         slot["remaining"] = body_size
                         slot["class_id"] = class_id
@@ -928,10 +1048,13 @@ class AmqpConnection:
 
     def _finish_delivery(self, channel: int, pending: dict[int, dict[str, Any]]) -> None:
         slot = pending.pop(channel)
-        deliver: Method = slot["deliver"]
         body = slot["body"]
         if not isinstance(body, bytes):
             body = bytes(body)
+        if "return" in slot:
+            self._finish_return(channel, slot["return"], body, dict(slot["properties"]))
+            return
+        deliver: Method = slot["deliver"]
         msg = IncomingMessage(
             delivery_tag=int(deliver.args["delivery_tag"]),
             exchange=str(deliver.args.get("exchange", "")),
@@ -942,6 +1065,47 @@ class AmqpConnection:
             consumer_tag=str(deliver.args.get("consumer_tag", "")),
         )
         self._deliveries.put_nowait(msg)
+
+    def _finish_return(
+        self,
+        channel: int,
+        method: Method,
+        body: bytes,
+        properties: dict[str, Any],
+    ) -> None:
+        returned = ReturnedMessage(
+            reply_code=int(method.args.get("reply_code", 312)),
+            reply_text=str(method.args.get("reply_text", "")),
+            exchange=str(method.args.get("exchange", "")),
+            routing_key=str(method.args.get("routing_key", "")),
+            body=body,
+            properties=properties,
+        )
+        tags = self._mandatory_tags.get(channel)
+        if tags:
+            tag = tags.popleft()
+            self._return_by_tag.setdefault(channel, {})[tag] = returned
+        cb = self.config.on_basic_return
+        if cb is not None:
+            try:
+                cb(returned)
+            except Exception:
+                pass
+        self._returns.put_nowait(returned)
+
+    def _clear_mandatory_tags(self, channel: int, delivery_tag: int, *, multiple: bool) -> None:
+        """Drop mandatory tags that were confirmed without a preceding return."""
+        dq = self._mandatory_tags.get(channel)
+        if not dq:
+            return
+        if multiple:
+            remaining = deque(t for t in dq if t > delivery_tag)
+            self._mandatory_tags[channel] = remaining
+            return
+        try:
+            dq.remove(delivery_tag)
+        except ValueError:
+            pass
 
     def _fail_waiters(self) -> None:
         err = self._lost_exc or ProtocolError("connection failed")

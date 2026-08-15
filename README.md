@@ -1,6 +1,7 @@
 # nuropb-rmq
 
 [![CI](https://github.com/RileyBetts/nuropb-rmq/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/RileyBetts/nuropb-rmq/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/nuropb-rmq.svg)](https://pypi.org/project/nuropb-rmq/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](CHANGELOG.md)
@@ -24,6 +25,7 @@ Alpha: the public API may still change. See [`CHANGELOG.md`](CHANGELOG.md).
 - TLS (`tls-verify-full`), mTLS / SASL `EXTERNAL`, PEM + PKCS#12 + secrets hook
 - Named queue profiles (`durable-at-least-once` default) and heartbeat watchdog
 - Fail-fast reconnect (`CONNECTION_LOST`); caller rebinds mesh consumers
+- Mandatory publish / `basic.return` (`PublishReturned`) so misrouted RPC is an error
 - Optional mesh discovery registry (announce/viewer — never a bind authority)
 - Runnable LangChain tool + LangGraph remote-node examples over the mesh
 - Throughput harness vs pika (`[bench]` extra)
@@ -50,7 +52,7 @@ pip install "nuropb-rmq[claims]"
 From a known Git tag (or before a version is on PyPI):
 
 ```bash
-pip install "git+https://github.com/RileyBetts/nuropb-rmq.git@v0.4.1"
+pip install "git+https://github.com/RileyBetts/nuropb-rmq.git@v0.5.0"
 ```
 
 Pushing an annotated `v*` tag from `main` publishes to PyPI via
@@ -151,6 +153,8 @@ Contributor commands to run these gates are in [`CONTRIBUTING.md`](CONTRIBUTING.
   [`docs/concepts/service-mesh.md`](docs/concepts/service-mesh.md).
 - Reconnect is fail-fast (`CONNECTION_LOST`); caller rebinds:
   [`docs/concepts/reconnect.md`](docs/concepts/reconnect.md).
+- LangGraph / long-running clients: retry authority is application-owned —
+  [`docs/guides/langgraph.md`](docs/guides/langgraph.md).
 - Work queues default to `durable-at-least-once`:
   [`docs/concepts/queue-profiles.md`](docs/concepts/queue-profiles.md).
 

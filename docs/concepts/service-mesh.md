@@ -46,6 +46,25 @@ Permission profile name: **`mesh-bind-namespaced`**.
 After reconnect, call `mesh.rebind()` and restart consumers — see
 [Reconnect](reconnect.md).
 
+## Retry authority (LangGraph / long-running clients)
+
+The library does **not** park-and-retry in-flight RPCs across reconnect.
+Ownership is split so there is one authoritative retry path:
+
+| Layer | Owns |
+|-------|------|
+| Mesh / RabbitMQ | Redelivery while the client's exclusive reply queue still exists |
+| Application / adapter | `CONNECTION_LOST` → new session epoch → `mesh.rebind()` |
+| LangGraph (if used) | Checkpoint replay of the failed node after rebind, **new correlation id** |
+| Handler | Idempotency (at-least-once + replay can run a method more than once) |
+
+Adapters stay **out of the core package**. LangChain/LangGraph wrappers live
+under [`examples/`](../../examples/) so those dependencies never enter
+`nuropb-rmq`. Operator walkthrough: [Using nuropb-rmq under LangGraph](../guides/langgraph.md).
+
+A misrouted mesh/RPC publish surfaces as `PUBLISH_RETURNED` (`basic.return`),
+not a hang until TTL.
+
 ## Discovery vs authorization
 
 | Mechanism | Role |

@@ -30,10 +30,12 @@ Residual gaps (accepted): JWT crypto axiomatized in Lean; broker ACL external; h
 | `NuropbRmq.Protocol.ConnectionSM` | `ConnectionStateMachine` + `ChannelStateMachine` |
 | `NuropbRmq.Protocol.FrameDecode` | `nuropb_rmq.transport.frame` decode/encode bounds (`payload+8 ≤ frame_max`) |
 | `NuropbRmq.Protocol.PublisherConfirms` | `transport/confirm.py` ConfirmTracker; SpeC++ `publisher_confirms*.smt2` |
+| `NuropbRmq.Protocol.BasicReturn` | `basic.return` / mandatory publish; SpeC++ `basic_return*.smt2`; `PublishReturned` |
 | `NuropbRmq.Protocol.DeliverySettle` | `basic_ack` / `basic_nack` / `basic_reject`; `NackDelivery` |
 | `NuropbRmq.Protocol.Invariants` | SpeC++ invariants 1–7; PBTs under `tests/protocol/` + `tests/transport/` |
 | `specs/specpp/Protocol/frame_bounds.smt2` | Wire-size ≤ frame_max |
 | `specs/specpp/Protocol/connection_blocked.smt2` | Blocked must be handled (not silent drop) |
+| `specs/specpp/Protocol/basic_return.smt2` | Return ≠ confirm nack; mandatory unroutable is observable |
 | `specs/specpp/Protocol/connection_channel_sm.smt2` | Same sort universe as Lean `ConnState` / `ChanState` / `TlsState` |
 | `NuropbRmq.Session.Correlation` | `nuropb_rmq.session.{ids,correlation,session}` |
 | `NuropbRmq.Session.Invariants` | SpeC++ Session Phase 1b; PBTs under `tests/session/` |
@@ -155,6 +157,7 @@ JWT crypto (`validSig` / `expired`) is axiomatized in Lean; broker ACL remains a
 | Lean / SpeC++ | Python |
 |---|---|
 | `exclusiveFate` / TTL vs ack | Broker TTL/DLX authoritative; DLQ timeout synthesizer |
+| DLQ unroutable `reply_to` | `DlqTimeoutProcessor` publishes `mandatory=true`; `basic.return` counted, drop unchanged |
 | `terminalOf` acked / dlqTimeout / connectionLost | RPC result, DLQ `REQUEST_TIMEOUT`, `CONNECTION_LOST` |
 | `onDisconnect` clears pending | `Session._on_connection_lost` / `correlation.discard_all` |
 | `onReconnect` bumps epoch | `Session.reconnect` / `ReconnectCoordinator` |

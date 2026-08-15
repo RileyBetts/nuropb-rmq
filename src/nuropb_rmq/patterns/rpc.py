@@ -23,6 +23,7 @@ from nuropb_rmq.patterns.errors import (
     INVALID_ENVELOPE,
     INVALID_ID,
     PUBLISH_NACK,
+    PUBLISH_RETURNED,
     REQUEST_TIMEOUT,
     RpcError,
     make_error_data,
@@ -36,6 +37,7 @@ from nuropb_rmq.transport.connection import (
     ConnectionBlockedError,
     ConnectionConfig,
     IncomingMessage,
+    PublishReturned,
 )
 
 Handler = Callable[[str, Any], Awaitable[Any] | Any]
@@ -108,9 +110,22 @@ class RpcClient:
                 routing_key=target,
                 properties=props,
                 queue_profile=self.queue_profile,
+                mandatory=True,
             )
-        except (PublishNack, ConnectionBlockedError) as exc:
+        except (PublishNack, PublishReturned, ConnectionBlockedError) as exc:
             self.session.correlation.fail(rid, exc)
+            if isinstance(exc, PublishReturned):
+                raise RpcError(
+                    PUBLISH_RETURNED,
+                    str(exc),
+                    make_error_data(
+                        code=PUBLISH_RETURNED,
+                        retryable=True,
+                        correlation_id=rid,
+                        method=method,
+                    ),
+                    id=rid,
+                ) from exc
             if isinstance(exc, PublishNack):
                 raise RpcError(
                     PUBLISH_NACK,

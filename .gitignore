@@ -11,3 +11,6 @@ specs/lean/.lake/
 erl_crash.dump
 *.dump
 .env
+.coverage
+htmlcov/
+announcements.draft.md
