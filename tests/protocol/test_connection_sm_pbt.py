@@ -45,7 +45,12 @@ def test_inv7_invalid_heartbeat_tears_down(hb: int) -> None:
     assert sm.state == ConnState.ERROR
 
 
-@given(st.sampled_from([m.CONNECTION_START_OK, m.CONNECTION_TUNE_OK, m.CONNECTION_OPEN]))
+@given(st.sampled_from([
+    m.CONNECTION_START_OK,
+    m.CONNECTION_TUNE_OK,
+    m.CONNECTION_OPEN,
+    m.CONNECTION_UPDATE_SECRET,
+]))
 @settings(max_examples=30)
 def test_inv1_illegal_send_from_init_tears_down(method_id: int) -> None:
     sm = _fresh()

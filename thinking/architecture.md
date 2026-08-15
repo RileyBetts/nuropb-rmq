@@ -83,6 +83,9 @@ Single status view. Detail and rationale live in the sections linked by name.
 | Reply-publish docs | **Done** — `scripts/reply-publish-restricted.md` + README |
 | Frame fuzz CI | **Done** — `tests/transport/test_frame_fuzz.py` + `pytest -m fuzz` in CI |
 | App-level mesh registry (discovery) | **Done** — fanout `nr.mesh.registry`; `MeshService(announce=True)` / `MeshRegistryViewer`; never consulted for bind |
+| `basic.return` / mandatory publish | **Done** — distinct from confirms (`PublishReturned`); RpcClient uses `mandatory=true`; DLQ timeout replies too |
+| Content properties | **Done** — `timestamp`, `type`, `user_id`, `app_id`, `cluster_id` encode/decode (pika interop) |
+| `connection.update-secret` | **Done** — thin round-trip; `ConnectionConfig.password` updated on success |
 
 ### Deferred (explicit)
 

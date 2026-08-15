@@ -56,6 +56,7 @@ class CorrelationTable:
             return False
         if not fut.done():
             fut.set_exception(exc)
+            fut.exception()  # retrieved here; caller raises a mapped error
         return True
 
     def discard_all(self, exc: BaseException | None = None) -> None:

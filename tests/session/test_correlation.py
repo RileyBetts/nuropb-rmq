@@ -93,3 +93,13 @@ async def test_pbt_late_discard(request_id: str) -> None:
     assert await fut == "ok"
     assert table.resolve(rid, "late") is False
     assert table.resolve("never-registered", "x") is False
+
+
+@pytest.mark.asyncio
+async def test_fail_retrieves_exception() -> None:
+    """Caller maps fail() to RpcError; the pending future must not warn."""
+    table = CorrelationTable()
+    rid, fut = table.register("fail-me")
+    assert table.fail(rid, RuntimeError("gone")) is True
+    assert fut.done()
+    assert len(table) == 0

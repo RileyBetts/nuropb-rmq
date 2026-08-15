@@ -128,6 +128,7 @@ class ConnectionStateMachine:
                 ConnState.START,
             },
             m.CONNECTION_CLOSE_OK: ConnState.CLOSING,
+            m.CONNECTION_UPDATE_SECRET: ConnState.OPEN_OK,
         }
         allowed = legal.get(method_id)
         if allowed is None:

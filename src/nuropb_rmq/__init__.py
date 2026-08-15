@@ -6,4 +6,4 @@
 from nuropb_rmq.api import *  # noqa: F403
 from nuropb_rmq.api import __all__ as __all__
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"

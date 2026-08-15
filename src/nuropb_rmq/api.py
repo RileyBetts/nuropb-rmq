@@ -34,6 +34,8 @@ from nuropb_rmq.transport.connection import (
     AmqpConnection,
     ConnectionBlockedError,
     ConnectionConfig,
+    PublishReturned,
+    ReturnedMessage,
     TlsProfile,
 )
 from nuropb_rmq.transport.tls_material import TlsMaterial
@@ -56,8 +58,10 @@ __all__ = [
     "MeshService",
     "NackDelivery",
     "PublishNack",
+    "PublishReturned",
     "QueueProfile",
     "ReconnectCoordinator",
+    "ReturnedMessage",
     "RpcClient",
     "RpcError",
     "RpcServer",
