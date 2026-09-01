@@ -6,11 +6,10 @@ RabbitMQ (local, cloud, or enterprise AMQPS).
 | Tree | Audience | Role |
 |------|----------|------|
 | [`docs/`](.) | Users / operators | How to configure and deploy |
-| [`thinking/`](../thinking/) | Maintainers | Design decisions and specs that drive new features |
 | [`scripts/*.md`](../scripts/reply-publish-restricted.md) | Ops | Checklists next to broker conf examples |
 
-Start here if you are wiring the library into an app. Use `thinking/` only when
-you need the decision ledger or formal-methods correspondence.
+Start here if you are wiring the library into an app. Formal-methods
+correspondence for contributors is in [`specs/lean/CORRESPONDENCE.md`](../specs/lean/CORRESPONDENCE.md).
 
 ## Concepts
 

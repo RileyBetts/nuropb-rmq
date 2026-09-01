@@ -1,8 +1,8 @@
 # Architecture overview
 
-A short visual tour for integrators. Deep design decisions live in
-[`thinking/architecture.md`](../../thinking/architecture.md) — this page stays
-at the “what talks to what” level.
+A short visual tour for integrators. This page stays at the “what talks to
+what” level. Lean ↔ Python correspondence is in
+[`specs/lean/CORRESPONDENCE.md`](../../specs/lean/CORRESPONDENCE.md).
 
 ## Layer stack
 

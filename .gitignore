@@ -14,3 +14,4 @@ erl_crash.dump
 .coverage
 htmlcov/
 announcements.draft.md
+thinking/
