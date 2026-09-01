@@ -16,13 +16,18 @@ lockfile (CI runs `uv lock --check`).
 ## Branching
 
 Long-lived branches: **`development`** (integration) and **`main`** (stable/release).
-Both are protected: changes land via pull request with required CI.
+**Both are protected.** GitHub must require pull requests and passing CI. There
+is no direct push, no force-push, and no commit on those branches from a
+workstation or an agent.
+
+Every change — including docs, CI, and version bumps — is introduced on a
+**feature branch**:
 
 ```text
 feature/<name>  →  development  →  main
 ```
 
-1. Update and branch from `development`:
+1. Update and branch from `development` (never from `main` for feature work):
 
 ```bash
 git checkout development && git pull
@@ -32,12 +37,19 @@ git checkout -b feature/my-change
 2. Open a PR targeting **`development`** (squash merge preferred).
 3. When `development` is ready to release, open a PR **`development` → `main`**
    (merge commit preferred so the integration boundary is visible).
+4. Annotated `v*` tags are cut from **`main`** only, after that PR has landed.
 
-Do not push directly to `main` or `development`.
+Do not push directly to `main` or `development`. Do not open feature PRs into
+`main`. Do not merge `main` into a feature branch as a substitute for
+branching off `development`.
 
 ## CI / gates
 
-GitHub Actions (`.github/workflows/ci.yml`) runs these gates via uv. Locally:
+GitHub Actions (`.github/workflows/ci.yml`) runs these gates via uv. Attack
+surfaces, SpeC++ negatives, and the exhaustive local command list:
+[`docs/reference/testing-regime.md`](docs/reference/testing-regime.md).
+
+Locally:
 
 ```bash
 uv sync --dev
@@ -46,7 +58,7 @@ uv run ruff check src tests
 uv run python specs/specpp/check_sat.py
 uv run pytest -q -m "not integration and not benchmark and not fuzz" --cov=nuropb_rmq --cov-fail-under=50
 HYPOTHESIS_PROFILE=ci uv run pytest -q -m fuzz
-uv sync --dev --extra claims && uv run pytest -q tests/patterns/test_context.py
+uv sync --dev --extra claims && uv run pytest -q tests/patterns/test_context.py tests/patterns/test_jwt_golden.py
 # with RabbitMQ on 5672 (or set NUROPB_RMQ_HOST / NUROPB_RMQ_PORT):
 uv run pytest -q -m integration
 (cd specs/lean && lake build)
@@ -89,21 +101,22 @@ must match `[project].version` in `pyproject.toml`.
    protection rules are up to maintainers).
 3. Confirm the package name is available / owned on PyPI before the first tag.
 
-## Alpha → beta
+## 1.0 release criteria
 
-Stay on **Alpha** (`Development Status :: 3 - Alpha`) until all of the following
-are true. Park-and-retry across reconnect stays deferred (fail-fast is v1).
+Stay off **Production/Stable** until all of the following are true (this tree
+targets 1.0.0):
 
-- `basic.return` / mandatory publish shipped and tested (done in 0.5.0)
-- At least one external operator has run AMQPS + restricted reply-publish
-  (`scripts/reply-publish-restricted.md`)
-- Public API freeze note: no silent additions/renames in `nuropb_rmq.api`
-  without a changelog entry
+- Park-and-retry default reconnect, with fail-fast as `fail_outstanding=True`
+- Lean HS256 JWT verify + broker ACL profiles (`reply-publish-restricted`,
+  `mesh-bind-namespaced`) with SpeC++ / correspondence tests
+- AMQPS `tls-verify-full` and reply-publish ACL exercised in CI
+- Public API freeze: [`docs/reference/api-stability.md`](docs/reference/api-stability.md)
 - Unit coverage measured in CI (`pytest-cov`, `--cov-fail-under=50` on the unit
-  lane — a regression floor, not a vanity target; live transport/RPC is
-  exercised in the integration job)
-- No new claims beyond protocol/session proof scope (SpeC++ / Lean)
+  lane — a regression floor, not a vanity target)
+- `specs/lean/CORRESPONDENCE.md` re-audited for the tag
 
-TTL anti-enumeration *timing* tests and management-API permission audits are
-soft follow-ups, not beta blockers.
+mTLS / SASL `EXTERNAL` remains an opt-in local/CI residual (extra plugin + CN
+mapping). Crypto-hardness and RS256/ES256 are not Lean 1.0 claims.
+
+Celery parity, LangGraph-in-core, `basic.get` / Tx / purge stay out of tree.
 

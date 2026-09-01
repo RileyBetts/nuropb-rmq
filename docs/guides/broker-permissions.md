@@ -18,8 +18,8 @@ Any publisher that can write to those queues can forge RPC replies.
 
 | Actor | Needs |
 |-------|-------|
-| Mesh / RPC **services** | May **publish** to `nr.reply.*` when completing requests |
-| Ordinary **clients** | May **declare/consume** their own `nr.reply.*` queues; should not publish to other clients’ reply queues |
+| Mesh / RPC **services** | May **publish** to `nr.reply.*` when completing requests. On RabbitMQ this includes **write** on `amq.default` (the nameless default exchange used for `reply_to`). |
+| Ordinary **clients** | May **declare/consume** their own `nr.reply.*` queues; must **not** have `write` on `amq.default` / `nr.reply.*` (forge denied). |
 | Shared `guest` / `write=.*` | Avoid for untrusted users |
 
 Full rabbitmqctl sketches and ops checklist:

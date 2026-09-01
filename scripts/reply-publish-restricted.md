@@ -14,22 +14,27 @@ does not replace RabbitMQ permissions.
 | Actor | Configure |
 |-------|-----------|
 | Mesh / RPC service users | May **publish** to `nr.reply.*` (or your configured reply-queue prefix) when completing requests |
-| Ordinary clients | May **declare/consume** their own `nr.reply.*` exclusive queues; should **not** publish to other clients' reply queues |
+| Ordinary clients | May **declare/consume** their own `nr.reply.*` exclusive queues; **must not** `write` `nr.reply.*` (forge denied) |
 | Default guest / wildcard | Avoid `configure=.*` / `write=.*` on `/` for untrusted users |
 
 ### rabbitmqctl sketch
 
 ```bash
-# Service identity: can publish replies + work the mesh namespace
+# Service identity: mesh + named reply/DLX, and amq.default so RPC replies
+# via the nameless default exchange (routing_key = reply_to) are allowed.
+# RabbitMQ maps "" → amq.default for write checks; it does not match the
+# routing key against write.
 rabbitmqctl set_permissions -p / svc-orders \
   "^nr\.svc\.orders$|^nr\.reply\." \
-  "^nr\.mesh.*|^nr\.reply\..*|^nr\.dlx\..*" \
+  "^nr\.mesh.*|^nr\.reply\..*|^nr\.dlx\..*|^amq\.default$" \
   "^nr\.svc\.orders$|^nr\.mesh.*|^nr\.dlx\..*"
 
-# Client identity: exclusive reply queue only (adjust regex to your vhost policy)
+# Client identity: exclusive reply queue configure/read; mesh write only.
+# Do not grant write on amq.default — that would let the client publish to
+# any queue name, including other clients' nr.reply.* (forge).
 rabbitmqctl set_permissions -p / client-app \
   "^nr\.reply\." \
-  "^nr\.mesh.*|^nr\.reply\." \
+  "^nr\.mesh.*" \
   "^nr\.reply\."
 ```
 

@@ -39,6 +39,20 @@ theorem optional_unroutable_silent :
 theorem mandatory_routable_no_return :
     mandatoryUnroutable true true = none := rfl
 
+/-- Mandatory unroutable: return then confirm-ack (not nack). -/
+def mandatoryUnroutableConfirm (mandatory routable : Bool) : List PublishSignal :=
+  if mandatory && !routable then [.basicReturn, .confirmAck]
+  else if routable then [.confirmAck]
+  else []
+
+theorem return_then_ack_not_nack :
+    mandatoryUnroutableConfirm true false =
+      [PublishSignal.basicReturn, PublishSignal.confirmAck] := rfl
+
+theorem return_then_ack_ne_nack_head :
+    (mandatoryUnroutableConfirm true false).head? ≠ some PublishSignal.confirmNack := by
+  native_decide
+
 /-- Observability only: a return does not rewrite a DLQ drop into a different fate. -/
 def dropUnchanged (dropped : Bool) (_returned : Bool) : Bool :=
   dropped

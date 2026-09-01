@@ -30,7 +30,7 @@ from nuropb_rmq.patterns.errors import (
 )
 from nuropb_rmq.patterns.mesh import MeshService
 from nuropb_rmq.session.ids import IdCollisionError, InvalidIdError
-from nuropb_rmq.session.session import Session
+from nuropb_rmq.session.session import ParkedPublish, Session
 from nuropb_rmq.transport.confirm import PublishNack
 from nuropb_rmq.transport.connection import (
     AmqpConnection,
@@ -112,8 +112,20 @@ class RpcClient:
                 queue_profile=self.queue_profile,
                 mandatory=True,
             )
+            self.session.remember_publish(
+                rid,
+                ParkedPublish(
+                    exchange=exchange,
+                    routing_key=target,
+                    body=body,
+                    properties=dict(props),
+                    queue_profile=self.queue_profile,
+                    mandatory=True,
+                ),
+            )
         except (PublishNack, PublishReturned, ConnectionBlockedError) as exc:
             self.session.correlation.fail(rid, exc)
+            self.session.forget_publish(rid)
             if isinstance(exc, PublishReturned):
                 raise RpcError(
                     PUBLISH_RETURNED,
@@ -148,6 +160,7 @@ class RpcClient:
         try:
             msg: IncomingMessage = await self.session.wait_reply(rid, fut)
         except TimeoutError as exc:
+            self.session.forget_publish(rid)
             raise RpcError(
                 REQUEST_TIMEOUT,
                 "request timed out",

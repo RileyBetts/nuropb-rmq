@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nuropb-rmq"
-version = "0.5.0"
+version = "1.0.0"
 description = "Native Python AMQP 0-9-1 client for RabbitMQ service mesh (RPC, events, mesh, reconnect)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,7 @@ authors = [{ name = "nuropb-rmq contributors" }]
 dependencies = []
 keywords = ["amqp", "rabbitmq", "rpc", "json-rpc", "service-mesh"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
@@ -53,6 +53,9 @@ nuropb-rmq-bench = "bench.compare:main"
 where = ["src", "."]
 include = ["nuropb_rmq*", "bench", "bench.*"]
 exclude = ["tests*", "thinking*", "specs*", "bench.results*"]
+
+[tool.setuptools.package-data]
+nuropb_rmq = ["py.typed"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -1,0 +1,19 @@
+---
+description: Protected branches — all work goes through feature branches and PRs
+alwaysApply: true
+---
+
+# Branching (protected `main` and `development`)
+
+`main` and `development` are **protected**. Never commit, push, merge, or rebase onto them directly. Never force-push them.
+
+```text
+feature/<name>  →  development  →  main
+```
+
+- Start from latest `development`: `git checkout development && git pull && git checkout -b feature/<name>`
+- Open a PR **into `development`** (squash merge preferred)
+- Release: PR **`development` → `main`** only (merge commit preferred)
+- Tags (`v*`) are created from `main` after that PR lands — not from a feature branch
+
+Do not invent a different integration branch. If work is already on `main`/`development` locally, move it onto a feature branch before pushing.

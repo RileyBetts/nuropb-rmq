@@ -5,5 +5,4 @@
 
 from nuropb_rmq.api import *  # noqa: F403
 from nuropb_rmq.api import __all__ as __all__
-
-__version__ = "0.5.0"
+from nuropb_rmq.version import __version__ as __version__

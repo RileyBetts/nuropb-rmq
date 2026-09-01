@@ -50,6 +50,7 @@ inductive ConnMethod where
   | open
   | close
   | closeOk
+  | updateSecret
   deriving DecidableEq, Repr
 
 end NuropbRmq.Protocol

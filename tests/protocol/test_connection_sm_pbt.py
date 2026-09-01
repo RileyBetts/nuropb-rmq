@@ -145,6 +145,30 @@ def test_inv5_begin_close_rejected_from_error() -> None:
     assert sm.state == ConnState.ERROR
 
 
+def _to_open_ok() -> ConnectionStateMachine:
+    sm = _fresh()
+    sm.on_tcp_connected(tls=False)
+    sm.allow_amqp_header()
+    sm.on_connection_start()
+    sm.on_connection_start_ok_sent()
+    sm.on_connection_tune()
+    sm.on_connection_tune_ok_sent(heartbeat=30)
+    sm.on_connection_open_sent()
+    sm.on_connection_open_ok()
+    return sm
+
+
+def test_update_secret_legal_only_open_ok() -> None:
+    """Lean legalSend updateSecret: OPEN_OK only (Python assert_can_send)."""
+    sm = _fresh()
+    with pytest.raises(ProtocolError):
+        sm.assert_can_send_connection_method(m.CONNECTION_UPDATE_SECRET)
+    assert sm.state == ConnState.ERROR
+    sm = _to_open_ok()
+    sm.assert_can_send_connection_method(m.CONNECTION_UPDATE_SECRET)
+    assert sm.state == ConnState.OPEN_OK
+
+
 @pytest.mark.asyncio
 async def test_inv7_connect_rejects_heartbeat_out_of_range() -> None:
     from nuropb_rmq.transport.connection import AmqpConnection, ConnectionConfig

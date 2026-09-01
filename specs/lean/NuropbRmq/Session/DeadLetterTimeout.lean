@@ -43,6 +43,10 @@ def terminalOf (s : RequestState) : Terminal :=
   else if !s.replyOpen then .connectionLost
   else .none
 
+/-- `basic.return` on a DLQ timeout reply does not rewrite `terminalOf`. -/
+def terminalAfterReturn (s : RequestState) (_returned : Bool) : Terminal :=
+  terminalOf s
+
 /-- Step: service acks while still in queue. -/
 def ackService (s : RequestState) : Option RequestState :=
   if s.fate != .inQueue then none

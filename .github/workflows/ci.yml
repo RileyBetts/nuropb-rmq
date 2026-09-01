@@ -49,7 +49,7 @@ jobs:
       - name: Sync (dev + claims)
         run: uv sync --dev --extra claims
       - name: Claims pattern tests
-        run: uv run pytest -q tests/patterns/test_context.py
+        run: uv run pytest -q tests/patterns/test_context.py tests/patterns/test_jwt_golden.py
 
   integration:
     name: Integration (RabbitMQ)
@@ -57,13 +57,14 @@ jobs:
     services:
       rabbitmq:
         image: rabbitmq:3-management
-        ports:
-          - 5672:5672
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
+        ports:
+          - 5672:5672
+          - 15672:15672
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -75,7 +76,36 @@ jobs:
         env:
           NUROPB_RMQ_HOST: 127.0.0.1
           NUROPB_RMQ_PORT: "5672"
+          NUROPB_RMQ_MGMT_PORT: "15672"
         run: uv run pytest -q -m integration
+      - name: Example smoke
+        env:
+          NUROPB_RMQ_HOST: 127.0.0.1
+          NUROPB_RMQ_PORT: "5672"
+        run: ./scripts/smoke_examples.sh
+
+  amqps:
+    name: AMQPS tls-verify-full
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync (dev)
+        run: uv sync --dev
+      - name: Generate AMQPS certs
+        run: ./scripts/gen_amqps_certs.sh
+      - name: Start RabbitMQ with TLS
+        run: ./scripts/ci_start_amqps_broker.sh
+      - name: AMQPS smoke
+        env:
+          NUROPB_RMQ_TLS: "1"
+          NUROPB_RMQ_HOST: 127.0.0.1
+          NUROPB_RMQ_PORT: "5671"
+          NUROPB_RMQ_CA_FILE: ${{ github.workspace }}/dev/amqps/ca.pem
+          NUROPB_RMQ_SERVER_HOSTNAME: localhost
+        run: uv run pytest -q tests/integration/test_amqps_smoke.py
 
   lean:
     name: Lean Phase 1 / 1b / 2

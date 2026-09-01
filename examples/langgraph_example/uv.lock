@@ -301,7 +301,7 @@ wheels = [
 
 [[package]]
 name = "nuropb-rmq"
-version = "0.2.0"
+version = "1.0.0"
 source = { editable = "../../" }
 
 [package.metadata]
@@ -321,6 +321,7 @@ dev = [
     { name = "hypothesis", specifier = ">=6.100" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-cov", specifier = ">=5" },
     { name = "ruff", specifier = ">=0.8" },
     { name = "z3-solver", specifier = ">=4.12" },
 ]

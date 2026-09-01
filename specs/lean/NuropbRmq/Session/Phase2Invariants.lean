@@ -49,6 +49,9 @@ theorem terminal_timeout :
       .dlqTimeoutSynthesized := by
   simp [terminalOf]
 
+theorem return_preserves_terminal (s : RequestState) (returned : Bool) :
+    terminalAfterReturn s returned = terminalOf s := rfl
+
 /-! ### First-reply-wins (Correlation Phase 1b) -/
 
 theorem first_wins_then_late (s : State) (id : CorrId)
@@ -63,15 +66,20 @@ theorem disconnect_clears (s : ReconnectState) :
     (onDisconnect s).pendingCount = 0 ∧ (onDisconnect s).replyOpen = false := by
   simp [onDisconnect]
 
+theorem disconnect_park_keeps_pending (s : ReconnectState) :
+    (onDisconnectPark s).pendingCount = s.pendingCount ∧
+      (onDisconnectPark s).replyOpen = false := by
+  simp [onDisconnectPark]
+
 theorem reconnect_bumps_epoch (s : ReconnectState) :
     (onReconnect s).epoch = s.epoch + 1 ∧
-      (onReconnect s).pendingCount = 0 ∧
+      (onReconnect s).pendingCount = s.pendingCount ∧
       (onReconnect s).replyOpen = true := by
   simp [onReconnect]
 
 theorem reconnect_wellFormed (s : ReconnectState) :
     wellFormedEpoch (onReconnect s) = true := by
-  simp [onReconnect, wellFormedEpoch]
+  simp [onReconnect, wellFormedEpoch, wellFormedFailFast]
 
 theorem register_requires_open (s : ReconnectState)
     (h : s.replyOpen = false) :
@@ -80,6 +88,10 @@ theorem register_requires_open (s : ReconnectState)
 
 theorem disconnect_then_reconnect_wellFormed (s : ReconnectState) :
     wellFormedEpoch (onReconnect (onDisconnect s)) = true := by
-  simp [onDisconnect, onReconnect, wellFormedEpoch]
+  simp [onDisconnect, onReconnect, wellFormedEpoch, wellFormedFailFast]
+
+theorem park_reconnect_keeps_pending (s : ReconnectState) :
+    (onReconnect (onDisconnectPark s)).pendingCount = s.pendingCount := by
+  simp [onDisconnectPark, onReconnect]
 
 end NuropbRmq.Session

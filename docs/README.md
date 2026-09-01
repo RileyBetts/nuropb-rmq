@@ -18,7 +18,9 @@ you need the decision ledger or formal-methods correspondence.
 - [Connection config](concepts/connection-config.md) — `ConnectionConfig` mental model
 - [TLS profiles and material](concepts/tls-profiles-and-material.md) — AMQPS trust and certs
 - [Queue profiles](concepts/queue-profiles.md) — durable defaults and publish rules
-- [Reconnect](concepts/reconnect.md) — fail-fast `CONNECTION_LOST` and rebind
+- [Reconnect](concepts/reconnect.md) — park-and-retry default; fail-fast opt-in
+- [Performance](concepts/performance.md) — bench vs pika; raw vs RPC how to read
+- [API stability](reference/api-stability.md) — 1.0 freeze surface
 - [Service mesh](concepts/service-mesh.md) — what “mesh” means in this library
 - [JWT claims](concepts/jwt-claims.md) — application auth on RPC headers
 
@@ -33,6 +35,7 @@ you need the decision ledger or formal-methods correspondence.
 
 - [ConnectionConfig fields](reference/connection-config.md)
 - [Environment variables](reference/env-vars.md) — `NUROPB_RMQ_*` in examples/tests
+- [Testing regime](reference/testing-regime.md) — proof and test layers, attack surfaces
 
 ## Examples
 

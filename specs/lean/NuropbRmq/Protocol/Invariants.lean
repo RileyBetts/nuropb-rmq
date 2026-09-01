@@ -29,6 +29,9 @@ theorem legalSend_startOk : legalSend .startOk .start = true := rfl
 theorem legalSend_tuneOk : legalSend .tuneOk .tune = true := rfl
 theorem legalSend_open : legalSend .open .tuneOk = true := rfl
 theorem legalSend_closeOk : legalSend .closeOk .closing = true := rfl
+theorem legalSend_updateSecret : legalSend .updateSecret .openOk = true := rfl
+theorem legalSend_updateSecret_not_start :
+    legalSend .updateSecret .start = false := rfl
 
 theorem legalSend_startOk_only_start (c : ConnState)
     (h : legalSend .startOk c = true) : c = .start := by
@@ -141,6 +144,22 @@ theorem tlsOpenOk_verified : tlsOpenOk.tlsVerifiedFlag = true := by native_decid
 /-- Skipping TLS verify fails closed. -/
 theorem tls_skip_verify_errors :
     (step (step {} (.tcpConnected true)) .amqpHeader).conn = .error := by
+  native_decide
+
+theorem blocked_refuses_publish :
+    publishAllowed { conn := .openOk, blocked := true } = false := rfl
+
+theorem unblocked_allows_publish :
+    publishAllowed { conn := .openOk, blocked := false } = true := by native_decide
+
+theorem two_missed_heartbeats_lost :
+    (step (step { conn := .openOk } (.heartbeatPeer false)) (.heartbeatPeer false)).conn =
+      .error := by
+  native_decide
+
+theorem heard_heartbeat_resets :
+    ((tryStep { conn := .openOk, missedHeartbeats := 1 } (.heartbeatPeer true)).map
+      (·.missedHeartbeats)) = some 0 := by
   native_decide
 
 end NuropbRmq.Protocol
