@@ -25,6 +25,10 @@ structure State where
   tlsVerifiedFlag : Bool := false
   /-- Single heartbeat policy field (invariant 7). -/
   heartbeat : Nat := 60
+  /-- `connection.blocked` — publish refused until unblocked. -/
+  blocked : Bool := false
+  /-- Consecutive missed peer heartbeat intervals (lost at 2). -/
+  missedHeartbeats : Nat := 0
   config : Config := {}
   deriving Repr
 
@@ -46,6 +50,10 @@ inductive Event where
   | chanOp
   | chanBeginClose
   | chanCloseOk
+  | updateSecret
+  | blocked
+  | unblocked
+  | heartbeatPeer (heard : Bool)
   deriving Repr
 
 /-- Invariant 1: outbound connection method legality. -/
@@ -60,7 +68,11 @@ def legalSend : ConnMethod → ConnState → Bool
   | .close, .startOk => true
   | .close, .start => true
   | .closeOk, .closing => true
+  | .updateSecret, .openOk => true
   | _, _ => false
+
+def publishAllowed (s : State) : Bool :=
+  decide (s.conn = .openOk) && !s.blocked
 
 /-- Successful transition, or `none` if the event is illegal (must tear down). -/
 def tryStep (s : State) : Event → Option State
@@ -125,6 +137,23 @@ def tryStep (s : State) : Event → Option State
       else some { s with chan := .closing }
   | .chanCloseOk =>
       some { s with chan := .closed }
+  | .updateSecret =>
+      if s.conn ≠ .openOk then none
+      else if !legalSend .updateSecret s.conn then none
+      else some s
+  | .blocked =>
+      if s.conn ≠ .openOk then none
+      else some { s with blocked := true }
+  | .unblocked =>
+      if s.conn ≠ .openOk then none
+      else some { s with blocked := false }
+  | .heartbeatPeer heard =>
+      if s.conn ≠ .openOk then none
+      else if heard then some { s with missedHeartbeats := 0 }
+      else
+        let n := s.missedHeartbeats + 1
+        if n ≥ 2 then none
+        else some { s with missedHeartbeats := n }
 
 /-- Fail-closed step: illegal events tear down to ERROR (invariant 4). -/
 def step (s : State) (e : Event) : State :=

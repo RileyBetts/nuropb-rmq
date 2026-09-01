@@ -12,7 +12,6 @@ import uuid
 
 import pytest
 
-from nuropb_rmq.patterns.errors import CONNECTION_LOST, RpcError
 from nuropb_rmq.patterns.mesh import MeshService, ServiceIdentity
 from nuropb_rmq.patterns.rpc import RpcClient, RpcServer
 from nuropb_rmq.session.reconnect import ReconnectCoordinator
@@ -58,7 +57,7 @@ async def test_reconnect_then_mesh_rpc() -> None:
         methods=["ping"],
         exchange=exchange,
     )
-    session = Session(_cfg())
+    session = Session(_cfg())  # default: park-and-retry
     server: RpcServer | None = None
     try:
         await mesh.start()
@@ -70,16 +69,16 @@ async def test_reconnect_then_mesh_rpc() -> None:
             f"{svc}.ping", f"{svc}.ping", {"n": 1}, exchange=exchange
         ) == {"ok": {"n": 1}}
 
-        # Outstanding request dies on drop
-        rid, fut = session.correlation.register()
+        # Client session parks and auto-reconnects. Mesh/RpcServer stay caller-owned.
         await session.conn.force_drop()
-        await asyncio.sleep(0.05)
-        with pytest.raises(RpcError) as ei:
-            await asyncio.wait_for(fut, timeout=2)
-        assert ei.value.code == CONNECTION_LOST
-        _ = rid
+        deadline = asyncio.get_running_loop().time() + 10
+        while asyncio.get_running_loop().time() < deadline:
+            if session.epoch >= 1 and session.reply_queue_open:
+                break
+            await asyncio.sleep(0.05)
+        else:
+            pytest.fail("session did not park-and-retry reconnect after drop")
 
-        # Reconnect session + rebind mesh; restart server
         await server.close()
         await ReconnectCoordinator().reconnect(session)
         await mesh.rebind()

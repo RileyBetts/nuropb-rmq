@@ -92,22 +92,29 @@ Application auth rides in AMQP **headers** only; the JSON-RPC body stays
 spec-pure. Servers with `AuthConfig` fail closed on missing or unbound tokens.
 See [JWT claims](jwt-claims.md).
 
-## Reconnect (v1)
+## Reconnect (1.0)
 
 ```mermaid
 flowchart LR
   lost[Disconnect]
+  park{fail_outstanding}
   fail[Outstanding_RPCs_CONNECTION_LOST]
+  hold[Park_futures]
   epoch[New_connection_epoch]
-  rebind[Caller_reconnect_and_rebind]
+  pub[Republish_same_id]
+  rebind[Caller_rebind_servers]
 
-  lost --> fail
+  lost --> park
+  park -->|true| fail
+  park -->|false default| hold --> epoch --> pub
   fail --> epoch
   epoch --> rebind
 ```
 
-There is no silent park-and-retry of in-flight RPCs. After reconnect you must
-rebind mesh consumers and restart servers. See [Reconnect](reconnect.md).
+Default reconnect **parks** in-flight client RPCs and republishes after a new
+exclusive reply queue. Fail-fast (`fail_outstanding=True`) completes outstanding
+calls with `CONNECTION_LOST`. After reconnect you must still rebind mesh
+consumers and restart servers. See [Reconnect](reconnect.md).
 
 Publisher confirms and `connection.blocked` fail-fast (no silent stall) are part
 of the same robustness story — see queue profiles and connection config docs.

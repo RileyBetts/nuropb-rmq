@@ -42,6 +42,7 @@ from nuropb_rmq.transport.frame import (
     max_frame_payload,
 )
 from nuropb_rmq.transport.tls_material import TlsMaterial, TlsSecrets, resolve_tls_material
+from nuropb_rmq.version import __version__
 
 # Poison object waking blocked receive() after connection loss.
 _LOSS_SENTINEL = object()
@@ -238,7 +239,7 @@ class AmqpConnection:
                 m.CONNECTION,
                 m.CONNECTION_START_OK,
                 {
-                    "client_properties": {"product": "nuropb-rmq", "version": "0.5.0"},
+                    "client_properties": {"product": "nuropb-rmq", "version": __version__},
                     "mechanism": mechanism,
                     "response": response,
                     "locale": "en_US",

@@ -5,21 +5,22 @@ Manual correspondence map for the Lean↔Python coupling decided in
 `thinking/architecture.md`: SpeC++ → Lean model → property-based tests +
 manual review. No code extraction.
 
-## Alignment findings (2026-08-11)
+## Alignment findings (2026-09-01)
 
-Re-audit of SpeC++ / Lean / Python against this document.
+Re-audit of SpeC++ / Lean / Python against this document for **1.0.0**.
 
 | Area | Status | Notes |
 |---|---|---|
-| Protocol inv 1–7 | **Aligned** | State enums, `legalSend`, TLS-before-AMQP, reject→ERROR, frame bounds, heartbeat `1..60` match. Added `test_inv3_*` / `test_inv5_*`; transport validates/clamps heartbeat before SM. |
-| Inv 7 vs watchdog | **Documented** | Lean models negotiate/store bounds only. Python `_heartbeat_loop` (send + 2× silence → `CONNECTION_LOST`) is the transport obligation under the same single-policy field — not a separate Lean event. |
-| Session Phase 1b | **Aligned** | Id bounds/charset, collision reject, first-wins. Lean `replyOpen` is enforced at Session/RpcClient (`reply_queue_open`), not inside `CorrelationTable` alone. |
-| Session Phase 2 | **Aligned** | Fail-fast clear pending, epoch bump, DLQ timeout synthesizer; mesh rebind caller-owned. |
-| Pattern mesh/claims | **Aligned** | `inNamespace`/`tryBind` ↔ mesh guards; `tryAuth` ↔ `AuthConfig.verify_request`. Python also refuses empty method / `..` beyond SpeC++ prefix core. |
-| Config SpeC++ | **Aligned (Lean Done)** | `NuropbRmq.Config.{QueueProfile,Invariants}` mirrors SpeC++ durable↔`delivery_mode`; Python `tests/config/test_queue_profile.py`. |
-| TLS material / SASL EXTERNAL | **Outside Lean** | PEM sources + EXTERNAL selection are transport/config; Protocol Lean stops at TLS-verified before AMQP. |
+| Protocol inv 1–7 | **Aligned** | Includes `legalSend updateSecret` (OPEN_OK only), `publishAllowed` while blocked, heartbeat miss-count event (2× → ERROR). |
+| Inv 7 vs watchdog | **Aligned** | Lean `heartbeatPeer` miss count; Python `_heartbeat_loop` still owns wall-clock. |
+| Session Phase 1b | **Aligned** | Unchanged first-wins / reply-open register gate. |
+| Session Phase 2 | **Aligned** | Fail-fast `onDisconnect` clears pending; `onDisconnectPark` keeps pending; `onReconnect` keeps count. |
+| Pattern mesh/claims | **Aligned** | `tryAuth` decision tree plus executable HS256 `Pattern.Jwt.verifyHs256`. |
+| Pattern ACL | **Aligned** | `Pattern.Acl` prefix profiles; Python `patterns/acl.py`; CI management-API test. |
+| Config SpeC++ | **Aligned** | Unchanged. |
+| TLS material / SASL EXTERNAL | **Outside Lean** | mTLS CI residual (plugin + CN mapping); AMQPS PLAIN is in CI. |
 
-Residual gaps (accepted): JWT crypto axiomatized in Lean; broker ACL external; heartbeat watchdog not reified as Lean events.
+Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; `authorize_func`; RabbitMQ regex engine / HA; park **exactly-once** server execution; mTLS job.
 
 ## Modules
 
@@ -43,7 +44,10 @@ Residual gaps (accepted): JWT crypto axiomatized in Lean; broker ACL external; h
 | `NuropbRmq.Session.Reconnect` | `session/reconnect.py` + `Session.reconnect` |
 | `NuropbRmq.Session.Phase2Invariants` | SpeC++ Phase 2; PBTs under `tests/session/test_reconnect.py` |
 | `NuropbRmq.Pattern.Mesh` | `nuropb_rmq.patterns.mesh` |
-| `NuropbRmq.Pattern.Claims` | `nuropb_rmq.patterns.context` |
+| `NuropbRmq.Pattern.Claims` | `nuropb_rmq.patterns.context` (`tryAuth` tree) |
+| `NuropbRmq.Pattern.Jwt` | HS256 compact verify; PyJWT golden `tests/patterns/test_jwt_golden.py` |
+| `NuropbRmq.Pattern.Acl` | `nuropb_rmq.patterns.acl`; `tests/patterns/test_acl.py`; `test_reply_acl_amqp.py` |
+| `NuropbRmq.Crypto.Sha256` / `Hmac` | FIPS / RFC 4231 vectors in Lean `native_decide` |
 | `NuropbRmq.Pattern.Invariants` | SpeC++ Pattern; PBTs under `tests/patterns/` |
 | `NuropbRmq.Config.QueueProfile` | `nuropb_rmq.config.queue_profile` |
 | `NuropbRmq.Config.Invariants` | SpeC++ Config; `tests/config/test_queue_profile.py` |
@@ -150,7 +154,11 @@ Residual gaps (accepted): JWT crypto axiomatized in Lean; broker ACL external; h
 | `tryAuth_public_skip` | `test_public_method_skips_claims`, `test_pbt_public_skip` |
 | `tryAuth_reject_*`, `tryAuth_ok` | `test_missing_claims_*`, `test_pbt_jti_must_match` |
 
-JWT crypto (`validSig` / `expired`) is axiomatized in Lean; broker ACL remains an external axiom. Python also refuses empty method / `..` segments beyond the SpeC++ prefix core.
+JWT HS256 compact verify is executable in `Pattern.Jwt` (not a PRF proof).
+Broker ACL profiles are executable in `Pattern.Acl` (not the broker binary).
+Live `test_reply_acl_amqp.py` uses RabbitMQ `write` on `amq.default` (default-exchange
+RPC) and waits for `channel.close` 403 — not a routing-key match.
+Python also refuses empty method / `..` segments beyond the SpeC++ prefix core.
 
 ## Session Phase 2 (Reconnect + DeadLetterTimeout)
 
@@ -159,8 +167,9 @@ JWT crypto (`validSig` / `expired`) is axiomatized in Lean; broker ACL remains a
 | `exclusiveFate` / TTL vs ack | Broker TTL/DLX authoritative; DLQ timeout synthesizer |
 | DLQ unroutable `reply_to` | `DlqTimeoutProcessor` publishes `mandatory=true`; `basic.return` counted, drop unchanged |
 | `terminalOf` acked / dlqTimeout / connectionLost | RPC result, DLQ `REQUEST_TIMEOUT`, `CONNECTION_LOST` |
-| `onDisconnect` clears pending | `Session._on_connection_lost` / `correlation.discard_all` |
-| `onReconnect` bumps epoch | `Session.reconnect` / `ReconnectCoordinator` |
+| `onDisconnect` fail-fast clears pending | `Session` `fail_outstanding=True` |
+| `onDisconnectPark` keeps pending | default park; `remember_publish` / republish |
+| `onReconnect` bumps epoch, keeps parked count | `Session.reconnect` / `ReconnectCoordinator` |
 | `MeshService.rebind` | Fresh connection + namespaced binds; caller restarts `RpcServer` |
 | `specs/specpp/Session/phase2_reconnect.smt2` | `tests/session/test_reconnect.py` + integration |
 

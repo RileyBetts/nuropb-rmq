@@ -4,7 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/nuropb-rmq.svg)](https://pypi.org/project/nuropb-rmq/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Status](https://img.shields.io/badge/status-alpha-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-stable-green.svg)](CHANGELOG.md)
 
 Async-native Python **AMQP 0-9-1** client for RabbitMQ — built on `asyncio`, with
 no `pika` (or other AMQP client) at runtime. It implements connection/channel
@@ -12,7 +12,9 @@ framing directly and layers nuropb-inspired **JSON-RPC 2.0** mesh patterns (RPC,
 events, service bind, claims) on that transport. Protocol and session behaviour
 are backed by SpeC++ CheckSat and Lean proofs, not only tests.
 
-Alpha: the public API may still change. See [`CHANGELOG.md`](CHANGELOG.md).
+1.0: the public API is frozen. See [`docs/reference/api-stability.md`](docs/reference/api-stability.md)
+and [`CHANGELOG.md`](CHANGELOG.md). This is an asyncio RPC/event mesh on RabbitMQ,
+not a Celery replacement.
 
 ## Features
 
@@ -24,7 +26,7 @@ Alpha: the public API may still change. See [`CHANGELOG.md`](CHANGELOG.md).
 - Optional JWT claims on RPC (`[claims]` extra)
 - TLS (`tls-verify-full`), mTLS / SASL `EXTERNAL`, PEM + PKCS#12 + secrets hook
 - Named queue profiles (`durable-at-least-once` default) and heartbeat watchdog
-- Fail-fast reconnect (`CONNECTION_LOST`); caller rebinds mesh consumers
+- Park-and-retry reconnect (default); fail-fast via `fail_outstanding=True`
 - Mandatory publish / `basic.return` (`PublishReturned`) so misrouted RPC is an error
 - Optional mesh discovery registry (announce/viewer — never a bind authority)
 - Runnable LangChain tool + LangGraph remote-node examples over the mesh
@@ -52,7 +54,7 @@ pip install "nuropb-rmq[claims]"
 From a known Git tag (or before a version is on PyPI):
 
 ```bash
-pip install "git+https://github.com/RileyBetts/nuropb-rmq.git@v0.5.0"
+pip install "git+https://github.com/RileyBetts/nuropb-rmq.git@v1.0.0"
 ```
 
 Pushing an annotated `v*` tag from `main` publishes to PyPI via
@@ -151,7 +153,8 @@ Contributor commands to run these gates are in [`CONTRIBUTING.md`](CONTRIBUTING.
   sources and cloud runbooks: [`docs/guides/cloud-and-enterprise-amqps.md`](docs/guides/cloud-and-enterprise-amqps.md).
 - Mesh is JSON-RPC over RabbitMQ (not a sidecar mesh):
   [`docs/concepts/service-mesh.md`](docs/concepts/service-mesh.md).
-- Reconnect is fail-fast (`CONNECTION_LOST`); caller rebinds:
+- Reconnect **parks** in-flight client RPCs by default (at-least-once republish);
+  fail-fast is `fail_outstanding=True`; caller still rebinds mesh servers:
   [`docs/concepts/reconnect.md`](docs/concepts/reconnect.md).
 - LangGraph / long-running clients: retry authority is application-owned —
   [`docs/guides/langgraph.md`](docs/guides/langgraph.md).
@@ -167,6 +170,14 @@ await mesh.start()
 
 ## Throughput vs pika
 
+On a 2026-09-01 laptop run (Docker RabbitMQ 3.13.7, no TLS), **raw
+publish/consume and fanout** were about **2×–3×** blocking pika at small and
+medium bodies, and roughly tied at 16 KiB. **JSON-RPC on an exclusive reply
+queue** (the mesh path) is slower than pika’s thinner blocking RPC — plan on
+the order of **100–700 round trips per second per process**, depending on
+parallelism, not thousands. Details, caveats, and how to re-run:
+[`docs/concepts/performance.md`](docs/concepts/performance.md).
+
 ```bash
 uv sync --dev --extra bench
 uv run python -m bench.compare --quick
@@ -174,9 +185,11 @@ uv run python -m bench.compare --quick
 
 ## Contributing
 
-PRs target **`development`**. Use [uv](https://docs.astral.sh/uv/) for the
-maintainer environment (`uv sync --dev`). Branching, CI gates, SpeC++, and Lean
-commands: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+PRs target **`development`**. **`main` and `development` are protected** — no
+direct commits. Branch from `development` as `feature/<name>`. Use
+[uv](https://docs.astral.sh/uv/) for the maintainer environment
+(`uv sync --dev`). Branching, CI gates, SpeC++, and Lean commands:
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 

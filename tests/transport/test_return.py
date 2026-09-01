@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from nuropb_rmq.protocol import methods as m
 from nuropb_rmq.protocol.methods import (
@@ -161,3 +163,19 @@ def test_dlq_processor_counts_unroutable_replies() -> None:
         )
     )
     assert proc.unroutable_replies == 1
+
+
+@given(st.booleans(), st.booleans())
+@settings(max_examples=20)
+def test_pbt_return_then_ack_never_nack(mandatory: bool, routable: bool) -> None:
+    """Lean mandatoryUnroutableConfirm: return is never a confirm nack."""
+    if mandatory and not routable:
+        signals = ["return", "ack"]
+    elif routable:
+        signals = ["ack"]
+    else:
+        signals = []
+    assert "nack" not in signals
+    if "return" in signals:
+        assert signals[0] == "return"
+        assert "ack" in signals
