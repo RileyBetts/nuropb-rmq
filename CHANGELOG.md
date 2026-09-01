@@ -4,11 +4,6 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
-- Documented the SpeC++ / Lean / PBT / live testing regime and attack surfaces
-  (`docs/reference/testing-regime.md`)
-- Performance note vs pika (raw/fanout vs exclusive-reply RPC) in
-  [`docs/concepts/performance.md`](docs/concepts/performance.md)
-
 ## 1.0.0 — 2026-09-01
 
 ### Added
@@ -25,6 +20,10 @@ All notable changes to this project are documented in this file.
 - Public API freeze (`docs/reference/api-stability.md`), error constants and
   `ReconnectPolicy` / `NamespaceError` on `nuropb_rmq.api`
 - `py.typed`; `client_properties.version` from `__version__`
+- Documented the SpeC++ / Lean / PBT / live testing regime and attack surfaces
+  (`docs/reference/testing-regime.md`)
+- Performance note vs pika (raw/fanout vs exclusive-reply RPC) in
+  [`docs/concepts/performance.md`](docs/concepts/performance.md)
 
 ### Changed
 
