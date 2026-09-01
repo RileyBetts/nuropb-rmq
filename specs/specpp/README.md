@@ -1,8 +1,8 @@
 # SpeC++ specs (Protocol + Session + Pattern + Phase 2)
 
 SMT-LIB encodings of Protocol invariants 1–7, Session correlation, Pattern
-mesh/claims, and Phase 2 reconnect/TTL terminal-state clauses from
-`thinking/architecture.md`.
+mesh/claims, and Phase 2 reconnect/TTL terminal-state clauses. Lean ↔ Python
+map: [`../lean/CORRESPONDENCE.md`](../lean/CORRESPONDENCE.md).
 
 ## CheckSat gate
 

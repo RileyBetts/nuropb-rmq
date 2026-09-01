@@ -132,7 +132,6 @@ User guides (config, AMQPS, mesh, claims): **[`docs/`](docs/README.md)**
 - [TLS profiles and material](docs/concepts/tls-profiles-and-material.md)
 - [Broker permissions](docs/guides/broker-permissions.md)
 
-Design notes for contributors: [`thinking/architecture.md`](thinking/architecture.md).
 Lean ↔ Python map: [`specs/lean/CORRESPONDENCE.md`](specs/lean/CORRESPONDENCE.md).
 Release notes: [`CHANGELOG.md`](CHANGELOG.md).
 
