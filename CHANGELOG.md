@@ -4,6 +4,43 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+- Documented the SpeC++ / Lean / PBT / live testing regime and attack surfaces
+  (`docs/reference/testing-regime.md`)
+- Performance note vs pika (raw/fanout vs exclusive-reply RPC) in
+  [`docs/concepts/performance.md`](docs/concepts/performance.md)
+
+## 1.0.0 — 2026-09-01
+
+### Added
+
+- Park-and-retry reconnect is the **default**: in-flight `RpcClient` futures
+  survive a drop, republish with the new exclusive `reply_to`. Fail-fast remains
+  `ReconnectPolicy(fail_outstanding=True)` / `Session(fail_outstanding=True)`
+- Lean: executable HS256 JWT compact verify (PyJWT golden token) and nuropb ACL
+  profiles (`reply-publish-restricted`, `mesh-bind-namespaced`)
+- Lean / SpeC++: `connection.update-secret` legalSend, `connection.blocked`
+  refuse-publish, heartbeat miss-count → lost, `basic.return` then confirm-ack,
+  park epoch invariants
+- CI: AMQPS `tls-verify-full` job; management-API reply-publish ACL; example smoke
+- Public API freeze (`docs/reference/api-stability.md`), error constants and
+  `ReconnectPolicy` / `NamespaceError` on `nuropb_rmq.api`
+- `py.typed`; `client_properties.version` from `__version__`
+
+### Changed
+
+- Classifier `Development Status :: 5 - Production/Stable`
+- `reply-publish-restricted` client **write** no longer includes `nr.reply.*`
+  (forge denied is now a theorem + CI)
+
+### Honesty
+
+- Park republish is at-least-once (not exactly-once)
+- Lean JWT is HS256 decision procedure, not HMAC hardness or RS256/ES256
+- Broker ACL model is nuropb prefixes, not RabbitMQ's regex engine.
+  Live `reply-publish-restricted` correspondence waits for `channel.close` 403
+  and grants service **write** on `amq.default` (default-exchange `reply_to`).
+- mTLS / SASL EXTERNAL remains opt-in (not the AMQPS CI job)
+
 ## 0.5.0 — 2026-08-15
 
 ### Added

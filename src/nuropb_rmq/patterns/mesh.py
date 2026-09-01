@@ -185,8 +185,9 @@ class MeshService:
     async def rebind(self) -> str:
         """Close old connection and redeclare namespace binds on a fresh connection.
 
-        Callers must restart RpcServer.from_mesh after rebind (v1 fail-fast;
-        no transparent consumer resume). Re-announces when ``announce`` is set.
+        Callers must restart RpcServer.from_mesh after rebind (park-and-retry
+        is client RPC only; servers are not auto-rebound).
+        Re-announces when ``announce`` is set.
         """
         try:
             await self.close()

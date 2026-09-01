@@ -8,7 +8,7 @@ Pattern mesh namespace model.
 
 Mirrors SpeC++ `in_namespace` / `BindOutcome` and Python
 `nuropb_rmq.patterns.mesh` client-side refuse-before-bind.
-Broker ACL is an external axiom — not proved here.
+/-- Broker ACL is modeled in `NuropbRmq.Pattern.Acl` (nuropb profiles, not the broker binary). -/
 -/
 
 namespace NuropbRmq.Pattern.Mesh

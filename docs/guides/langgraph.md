@@ -13,14 +13,14 @@ a core extra.
 
 ```text
 mesh redelivery     — while the client reply queue exists
-adapter             — CONNECTION_LOST → rebind session / mesh (no local retry)
-LangGraph           — checkpoint replay of the node (fresh correlation id)
+Session (default)   — park-and-retry of the same Future (at-least-once republish)
+adapter             — CONNECTION_LOST only under fail_outstanding=True → rebind
+LangGraph           — checkpoint replay when the adapter raises RetriableRemoteError
 remote handler      — must be idempotent (keyed by business id, not AMQP tag)
 ```
 
-Park-and-retry of in-flight RPCs is **out of scope** for v1. Fail-fast avoids
-two paths independently completing the same correlation id. See
-[Reconnect](../concepts/reconnect.md).
+Default reconnect parks in-flight RPCs. Fail-fast (`fail_outstanding=True`)
+keeps a single application-owned retry path. See [Reconnect](../concepts/reconnect.md).
 
 ## What the adapter must do
 

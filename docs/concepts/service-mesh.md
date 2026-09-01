@@ -48,15 +48,17 @@ After reconnect, call `mesh.rebind()` and restart consumers — see
 
 ## Retry authority (LangGraph / long-running clients)
 
-The library does **not** park-and-retry in-flight RPCs across reconnect.
-Ownership is split so there is one authoritative retry path:
+Default reconnect **parks** in-flight `RpcClient` calls and republishes after a
+new epoch (at-least-once). Fail-fast (`fail_outstanding=True`) still raises
+`CONNECTION_LOST` so the application owns retry.
 
 | Layer | Owns |
 |-------|------|
 | Mesh / RabbitMQ | Redelivery while the client's exclusive reply queue still exists |
-| Application / adapter | `CONNECTION_LOST` → new session epoch → `mesh.rebind()` |
-| LangGraph (if used) | Checkpoint replay of the failed node after rebind, **new correlation id** |
-| Handler | Idempotency (at-least-once + replay can run a method more than once) |
+| Session (default) | Park-and-retry of in-flight client RPCs across reconnect |
+| Application / adapter | Mesh `rebind` + restart `RpcServer`; optional fail-fast policy |
+| LangGraph (if used) | Checkpoint replay only when the adapter sees `CONNECTION_LOST` (fail-fast) |
+| Handler | Idempotency (park republish and broker redelivery can run a method more than once) |
 
 Adapters stay **out of the core package**. LangChain/LangGraph wrappers live
 under [`examples/`](../../examples/) so those dependencies never enter

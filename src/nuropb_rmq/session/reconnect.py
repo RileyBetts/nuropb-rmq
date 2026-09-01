@@ -1,12 +1,12 @@
 # Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
 # Released under Apache 2.0 license as described in the file LICENSE.
 
-"""Reconnect coordination (fail-fast outstanding RPCs; new Session epoch).
+"""Reconnect coordination: new Session epoch, optional park-and-retry.
 
-v1 policy: on disconnect, outstanding requests fail with CONNECTION_LOST.
-Reconnect opens a new TCP/AMQP connection and exclusive reply queue.
-MeshService / RpcServer consumers are rebound/restarted by the caller —
-no silent in-flight retry (avoids multi-path outcomes).
+Default policy parks in-flight RpcClient futures, opens a new exclusive reply
+queue, and republishes with the same correlation id. Fail-fast
+(``fail_outstanding=True``) still completes outstanding calls with
+``CONNECTION_LOST``. MeshService / RpcServer consumers remain caller-owned.
 """
 
 from __future__ import annotations
@@ -19,19 +19,25 @@ from nuropb_rmq.session.session import Session
 
 @dataclass(frozen=True, slots=True)
 class ReconnectPolicy:
-    """Fail-fast reconnect policy (park-and-retry deferred)."""
+    """Reconnect backoff and outstanding-RPC policy.
+
+    ``fail_outstanding=False`` (default): park-and-retry — keep futures, republish
+    after a new epoch. At-least-once on the server; handlers must be idempotent.
+
+    ``fail_outstanding=True``: 0.5.x fail-fast — outstanding RPCs get
+    ``CONNECTION_LOST`` immediately.
+    """
 
     max_attempts: int = 5
     initial_backoff_s: float = 0.05
     max_backoff_s: float = 2.0
-    # v1: always fail outstanding on disconnect (field documents the decision)
-    fail_outstanding: bool = True
+    fail_outstanding: bool = False
 
     def __post_init__(self) -> None:
         if self.max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
-        if not self.fail_outstanding:
-            raise ValueError("park-and-retry is out of scope for v1; fail_outstanding must be True")
+        if self.initial_backoff_s < 0 or self.max_backoff_s < 0:
+            raise ValueError("backoff must be >= 0")
 
 
 class ReconnectCoordinator:

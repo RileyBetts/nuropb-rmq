@@ -28,5 +28,13 @@ python specs/specpp/check_sat.py
 | `Protocol/connection_blocked_negatives.smt2` | **unsat** |
 | `Protocol/basic_return.smt2` | **sat** |
 | `Protocol/basic_return_negatives.smt2` | **unsat** |
+| `Protocol/update_secret.smt2` | **sat** |
+| `Protocol/update_secret_negatives.smt2` | **unsat** |
+| `Protocol/heartbeat_watchdog.smt2` | **sat** |
+| `Protocol/heartbeat_watchdog_negatives.smt2` | **unsat** |
+| `Session/park_reconnect.smt2` | **sat** |
+| `Session/park_reconnect_negatives.smt2` | **unsat** |
+| `Pattern/acl.smt2` | **sat** |
+| `Pattern/acl_negatives.smt2` | **unsat** |
 
 **UNKNOWN is a hard failure** (no waiver).

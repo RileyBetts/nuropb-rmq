@@ -106,3 +106,31 @@ async def test_rpc_dlq_timeout() -> None:
     finally:
         await session.close()
         await dlq_proc.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_dlq_unroutable_when_reply_queue_gone() -> None:
+    suffix = uuid.uuid4().hex
+    q = f"nr.rpc.ttl.gone.{suffix}"
+    dlx = f"nr.dlx.gone.{suffix}"
+    dlq = f"nr.dlq.gone.{suffix}"
+    await _declare_ttl_request_queue(q, dlx, dlq, ttl_ms=400)
+    session = Session(_cfg())
+    dlq_proc = DlqTimeoutProcessor(_cfg(), dlq_name=dlq)
+    try:
+        await dlq_proc.start()
+        await session.start()
+        client = RpcClient(session)
+        req = asyncio.create_task(client.request(q, "slow.op", {}))
+        await asyncio.sleep(0.05)
+        await session.close()
+        with pytest.raises(Exception):
+            await asyncio.wait_for(req, timeout=5)
+        for _ in range(40):
+            if dlq_proc.unroutable_replies >= 1:
+                break
+            await asyncio.sleep(0.1)
+        assert dlq_proc.unroutable_replies >= 1
+    finally:
+        await dlq_proc.close()
