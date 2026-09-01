@@ -1,9 +1,8 @@
 # Lean ↔ Python correspondence (Protocol + Session + Pattern)
 
 
-Manual correspondence map for the Lean↔Python coupling decided in
-`thinking/architecture.md`: SpeC++ → Lean model → property-based tests +
-manual review. No code extraction.
+Manual correspondence map for the Lean↔Python coupling: SpeC++ → Lean model →
+property-based tests + manual review. No code extraction.
 
 ## Alignment findings (2026-09-01)
 

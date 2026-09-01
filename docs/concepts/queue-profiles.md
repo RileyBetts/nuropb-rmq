@@ -43,7 +43,7 @@ server = RpcServer(cfg, queue="orders", handler=handler, queue_profile=durable_c
 
 ## Related
 
-- Config / Lean notes: `thinking/architecture.md` (Configuration Strategy)
+- Config / Lean notes: [`specs/lean/CORRESPONDENCE.md`](../../specs/lean/CORRESPONDENCE.md)
 - Public imports: `durable_at_least_once`, `durable_classic`, …
 - Non-goals (deliberate): `basic.get`, Tx class, Access, channel.flow,
   exchange/queue delete/unbind/purge — continuous consume + declare-own-topology
