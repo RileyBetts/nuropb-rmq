@@ -98,13 +98,30 @@ jobs:
         run: ./scripts/gen_amqps_certs.sh
       - name: Start RabbitMQ with TLS
         run: |
+          # Broker uid in the image must read host-mounted key material.
+          chmod a+r dev/amqps/ca.pem dev/amqps/server.pem dev/amqps/server.key
           docker run -d --name rmq-amqps \
+            --health-cmd "rabbitmq-diagnostics -q ping" \
+            --health-interval 5s \
+            --health-timeout 5s \
+            --health-retries 24 \
             -p 5671:5671 \
             -v "$PWD/dev/amqps:/certs:ro" \
             -v "$PWD/scripts/rabbitmq-amqps.ci.conf:/etc/rabbitmq/rabbitmq.conf:ro" \
             rabbitmq:3-management
-          for i in $(seq 1 40); do
-            if python3 -c "import socket; socket.create_connection(('127.0.0.1', 5671), 1).close()" 2>/dev/null; then
+          # Docker's port proxy accepts TCP before the SSL listener exists.
+          for i in $(seq 1 60); do
+            if docker exec rmq-amqps rabbitmq-diagnostics -q ping >/dev/null 2>&1 \
+              && python3 -c "
+import ssl, socket, sys
+ctx = ssl.create_default_context(cafile='dev/amqps/ca.pem')
+try:
+    with socket.create_connection(('127.0.0.1', 5671), 2) as raw:
+        ctx.wrap_socket(raw, server_hostname='localhost')
+except Exception as e:
+    print(e)
+    sys.exit(1)
+"; then
               echo "AMQPS listener ready"
               exit 0
             fi
