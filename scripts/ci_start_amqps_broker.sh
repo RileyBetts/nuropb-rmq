@@ -13,10 +13,6 @@ cd "$ROOT"
 chmod a+r dev/amqps/ca.pem dev/amqps/server.pem dev/amqps/server.key
 
 docker run -d --name rmq-amqps \
-  --health-cmd "rabbitmq-diagnostics -q ping" \
-  --health-interval 5s \
-  --health-timeout 5s \
-  --health-retries 24 \
   -p 5671:5671 \
   -v "$PWD/dev/amqps:/certs:ro" \
   -v "$PWD/scripts/rabbitmq-amqps.ci.conf:/etc/rabbitmq/rabbitmq.conf:ro" \
@@ -39,7 +35,7 @@ PY
 }
 
 for _ in $(seq 1 60); do
-  if docker exec rmq-amqps rabbitmq-diagnostics -q ping >/dev/null 2>&1 && tls_ready; then
+  if tls_ready; then
     echo "AMQPS listener ready"
     exit 0
   fi
