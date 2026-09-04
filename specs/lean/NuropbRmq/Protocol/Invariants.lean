@@ -162,4 +162,65 @@ theorem heard_heartbeat_resets :
       (·.missedHeartbeats)) = some 0 := by
   native_decide
 
+/-! ### Channel SM (ops require OPEN) -/
+
+theorem allowsOps_iff_open (c : ChanState) :
+    c.allowsOps = true ↔ c = .open := by
+  cases c <;> simp [ChanState.allowsOps]
+
+theorem chanOpen_requires_conn_openOk (s s' : State)
+    (h : tryStep s .chanOpen = some s') : s.conn = .openOk := by
+  simp [tryStep] at h
+  exact h.1
+
+theorem chanOpen_requires_closed (s s' : State)
+    (h : tryStep s .chanOpen = some s') : s.chan = .closed := by
+  simp [tryStep] at h
+  exact h.2.1
+
+theorem chanOpenOk_opens (s s' : State)
+    (h : tryStep s .chanOpenOk = some s') : s'.chan = .open := by
+  simp [tryStep] at h
+  obtain ⟨_, hs'⟩ := h
+  subst hs'
+  rfl
+
+theorem chanOp_requires_allowsOps (s s' : State)
+    (h : tryStep s .chanOp = some s') : s.chan.allowsOps = true := by
+  simp [tryStep] at h
+  exact h.1
+
+theorem chanOp_refused_when_closed (s : State) (h : s.chan = .closed) :
+    tryStep s .chanOp = none := by
+  simp [tryStep, h, ChanState.allowsOps]
+
+/-! ### Reachable (inductive closure of `step`) -/
+
+theorem reachable_init : Reachable {} := .init
+
+theorem reachable_closed_under_step (s : State) (e : Event)
+    (h : Reachable s) : Reachable (step s e) :=
+  .step s e h
+
+private theorem reachable_chain8 (e1 e2 e3 e4 e5 e6 e7 e8 : Event) :
+    Reachable (step (step (step (step (step (step (step (step {}
+      e1) e2) e3) e4) e5) e6) e7) e8) :=
+  .step _ e8 <| .step _ e7 <| .step _ e6 <| .step _ e5 <|
+    .step _ e4 <| .step _ e3 <| .step _ e2 <| .step _ e1 <| .init
+
+private theorem reachable_chain9 (e1 e2 e3 e4 e5 e6 e7 e8 e9 : Event) :
+    Reachable (step (step (step (step (step (step (step (step (step {}
+      e1) e2) e3) e4) e5) e6) e7) e8) e9) :=
+  .step _ e9 <| reachable_chain8 e1 e2 e3 e4 e5 e6 e7 e8
+
+theorem reachable_plainOpenOk : Reachable plainOpenOk := by
+  unfold plainOpenOk
+  exact reachable_chain8 (.tcpConnected false) .amqpHeader .connStart .startOk
+    .tune (.tuneOk 30) .open .openOk
+
+theorem reachable_tlsOpenOk : Reachable tlsOpenOk := by
+  unfold tlsOpenOk
+  exact reachable_chain9 (.tcpConnected true) .tlsVerified .amqpHeader .connStart
+    .startOk .tune (.tuneOk 60) .open .openOk
+
 end NuropbRmq.Protocol

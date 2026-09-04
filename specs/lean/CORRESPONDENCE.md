@@ -4,20 +4,22 @@
 Manual correspondence map for the Lean↔Python coupling: SpeC++ → Lean model →
 property-based tests + manual review. No code extraction.
 
-## Alignment findings (2026-09-01)
+## Alignment findings (2026-09-04)
 
-Re-audit of SpeC++ / Lean / Python against this document for **1.0.0**.
+Re-audit of SpeC++ / Lean / Python against this document after the Lean
+client Transport split and coverage smokes.
 
 | Area | Status | Notes |
 |---|---|---|
-| Protocol inv 1–7 | **Aligned** | Includes `legalSend updateSecret` (OPEN_OK only), `publishAllowed` while blocked, heartbeat miss-count event (2× → ERROR). |
+| Protocol inv 1–7 | **Aligned** | Includes `legalSend updateSecret` (OPEN_OK only), `publishAllowed` while blocked, heartbeat miss-count event (2× → ERROR). Channel `allowsOps` / `Reachable` witnesses in Lean. |
 | Inv 7 vs watchdog | **Aligned** | Lean `heartbeatPeer` miss count; Python `_heartbeat_loop` still owns wall-clock. |
-| Session Phase 1b | **Aligned** | Unchanged first-wins / reply-open register gate. |
-| Session Phase 2 | **Aligned** | Fail-fast `onDisconnect` clears pending; `onDisconnectPark` keeps pending; `onReconnect` keeps count. |
-| Pattern mesh/claims | **Aligned** | `tryAuth` decision tree plus executable HS256 `Pattern.Jwt.verifyHs256`. |
+| Session Phase 1b | **Aligned** | First-wins / reply-open register gate; Lean `Ids.validId` charset theorems (Python `validate_id`). |
+| Session Phase 2 | **Aligned** | Fail-fast `onDisconnect` clears pending; `onDisconnectPark` + `wellFormedPark` (pending may survive the reply-queue gap); `onReconnect` keeps count. |
+| Pattern mesh/claims | **Aligned** | `tryAuth` decision tree plus executable HS256 `Pattern.Jwt.verifyHs256`. Lean IO claims smoke uses `goldenToken`. |
 | Pattern ACL | **Aligned** | `Pattern.Acl` prefix profiles; Python `patterns/acl.py`; CI management-API test. |
 | Config SpeC++ | **Aligned** | Unchanged. |
-| TLS material / SASL EXTERNAL | **Outside Lean** | mTLS CI residual (plugin + CN mapping); AMQPS PLAIN is in CI. |
+| Lean IO runtime | **Aligned** | `NuropbRMQ.connect` / `connectWith` + `Transport`; `expectMethod` queues `BASIC_DELIVER`. Coverage: `./scripts/smoke_lean_coverage.sh`. |
+| TLS material / SASL EXTERNAL | **Outside Lean** | mTLS CI residual (plugin + CN mapping); Python + Lean AMQPS PLAIN-over-TLS in CI. Oracle TLS SM vector `sm_trace_tls.txt`. |
 
 Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; `authorize_func`; RabbitMQ regex engine / HA; park **exactly-once** server execution; mTLS job.
 
@@ -29,6 +31,8 @@ Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; `auth
 | `NuropbRmq.Protocol.ChanState` | `nuropb_rmq.protocol.channel_sm.ChanState` |
 | `NuropbRmq.Protocol.ConnectionSM` | `ConnectionStateMachine` + `ChannelStateMachine` |
 | `NuropbRmq.Protocol.FrameDecode` | `nuropb_rmq.transport.frame` decode/encode bounds (`payload+8 ≤ frame_max`) |
+| `NuropbRmq.Protocol.Bytes` / `Frame` / `Field` / `Methods` | Executable AMQP codec (Lean client + `lake exe oracle`). Field decode includes array/`x-death` tags used on DLQ. |
+| `NuropbRmq.Pattern.Envelope` | JSON-RPC 2.0 body (`separators=(",", ":")`) |
 | `NuropbRmq.Protocol.PublisherConfirms` | `transport/confirm.py` ConfirmTracker; SpeC++ `publisher_confirms*.smt2` |
 | `NuropbRmq.Protocol.BasicReturn` | `basic.return` / mandatory publish; SpeC++ `basic_return*.smt2`; `PublishReturned` |
 | `NuropbRmq.Protocol.DeliverySettle` | `basic_ack` / `basic_nack` / `basic_reject`; `NackDelivery` |
@@ -181,13 +185,53 @@ Python also refuses empty method / `..` segments beyond the SpeC++ prefix core.
 | `NuropbRmq.Config.consistent` / `durable_requires_persistent` | `QueueProfile.__post_init__` / `assert_delivery_mode` |
 | `durableAtLeastOnce_consistent` | `DURABLE_AT_LEAST_ONCE` / `tests/config/test_queue_profile.py` |
 
+## Runtime (dual clients)
+
+Python and Lean are **two runtimes** over the same kernels. There is no
+extraction in either direction. The Python 1.0 API (`src/nuropb_rmq/api.py`)
+is frozen; Lean names mirror it and are not a Python API change.
+
+| Role | Artifact |
+|---|---|
+| Proofs + kernels | Lake target `NuropbRMQSpec` (`import NuropbRmq.*`, no `IO`) |
+| Lean AMQP/mesh client | Lake package / `import NuropbRMQ` (POSIX sockets; imports kernels) |
+| Optional AMQPS | `NuropbRMQTls.connect` (OpenSSL tls-verify-full PEM; not `default_target`). PKCS#12 / mTLS residual. |
+| Python 1.0 | `nuropb_rmq` / PyPI `nuropb-rmq` (asyncio; no Lean FFI in the wheel) |
+
+| Lean client | Python 1.0 |
+|---|---|
+| `NuropbRMQ.connect` / `connectWith` / `Transport` | `AmqpConnection` (PLAIN; TLS is a separate byte pipe) |
+| `NuropbRMQ.Tls.connect` | `AmqpConnection` AMQPS `tls-verify-full` (PEM CA; not PKCS#12) |
+| `NuropbRMQ.Session` | `Session` |
+| `NuropbRMQ.RpcClient` / `RpcServer` | `RpcClient` / `RpcServer` |
+| `NuropbRMQ.MeshService` / `ServiceIdentity` | `MeshService` / `ServiceIdentity` |
+| `NuropbRMQ.EventPublisher` / `EventSubscriber` | `EventPublisher` / `EventSubscriber` |
+| `NuropbRMQ.MeshRegistryPublisher` / `MeshRegistryViewer` | `MeshRegistryPublisher` / `MeshRegistryViewer` |
+| `NuropbRMQ.DlqTimeoutProcessor` | `DlqTimeoutProcessor` |
+| `NuropbRmq.Protocol.tryStep` / `legalSend` | Python connection/channel SMs |
+| `NuropbRmq.Pattern.Mesh.tryBind` | `MeshService.assert_bind_allowed` |
+| `NuropbRmq.Pattern.Jwt.verifyHs256` | `AuthConfig.verify_request` (HS256) |
+
+Interop suites (shared `nr.interop.*` keys so they do not clash with
+`one_client_one_service`): `examples/interop_hello/`, `examples/interop_mesh/`,
+`examples/lean_mesh/`. Smoke: `./scripts/smoke_interop.sh`.
+
 ## Build / test
 
 ```bash
 python specs/specpp/check_sat.py
-cd specs/lean && lake build
-cd ../.. && pytest -q tests/protocol tests/transport tests/session tests/patterns
+# from repository root
+lake build NuropbRMQSpec
+lake build NuropbRMQ
+lake exe oracle .
+pytest -q tests/protocol tests/transport tests/session tests/patterns
 # claims unit tests need: uv sync --dev --extra claims
 # integration (needs local RabbitMQ):
 pytest -q tests/integration
+# Lean ↔ Python interop (needs lake + broker):
+./scripts/smoke_interop.sh
+# Lean AMQPS (OpenSSL; not default lake build):
+./scripts/smoke_lean_amqps.sh
+# Lean IO coverage (claims / events / DLQ / reconnect; PLAIN):
+./scripts/smoke_lean_coverage.sh
 ```

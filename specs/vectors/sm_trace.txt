@@ -1,0 +1,9 @@
+tcpConnected:false
+amqpHeader
+connStart
+startOk
+tune
+tuneOk:60
+open
+openOk
+final:openOk

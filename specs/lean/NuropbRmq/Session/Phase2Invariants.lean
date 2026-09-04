@@ -94,4 +94,12 @@ theorem park_reconnect_keeps_pending (s : ReconnectState) :
     (onReconnect (onDisconnectPark s)).pendingCount = s.pendingCount := by
   simp [onDisconnectPark, onReconnect]
 
+theorem disconnect_park_wellFormedPark (s : ReconnectState) :
+    wellFormedPark (onDisconnectPark s) = true :=
+  wellFormedPark_any (onDisconnectPark s)
+
+theorem park_reconnect_wellFormedPark (s : ReconnectState) :
+    wellFormedPark (onReconnect (onDisconnectPark s)) = true :=
+  wellFormedPark_any (onReconnect (onDisconnectPark s))
+
 end NuropbRmq.Session
