@@ -7,10 +7,13 @@ import NuropbRmq.Pattern.Envelope
 import NuropbRmq.Pattern.Errors
 import NuropbRmq.Pattern.Claims
 import NuropbRmq.Pattern.Jwt
+import Std.Async
 import NuropbRmq.Session.Dedup
 import NuropbRMQ.Session
 
 namespace NuropbRMQ
+
+open Std.Async
 
 open NuropbRmq.Pattern.Envelope
 open NuropbRmq.Pattern.Errors
@@ -19,10 +22,13 @@ open NuropbRmq.Protocol
 structure RpcClient where
   session : Session
 
-def RpcClient.request (cli : RpcClient) (target method : String) (params : Json := .obj [])
+def RpcClient.requestAsync (cli : RpcClient) (target method : String) (params : Json := .obj [])
     (requestId : Option String := none) (exchange : String := "")
-    (claimsToken : Option String := none) : IO Json := do
-  let rid ← Session.register cli.session requestId
+    (claimsToken : Option String := none) : Async Json := do
+  let (rid, c, replyTo) ← ioRun do
+    let rid ← Session.register cli.session requestId
+    let (c, q) ← Session.rpcHandles cli.session
+    return (rid, c, some q)
   let body := encodeRequest method params rid
   let mut headers : Table := []
   if let some tok := claimsToken then
@@ -30,26 +36,48 @@ def RpcClient.request (cli : RpcClient) (target method : String) (params : Json 
   let props : BasicProperties := {
     contentType := some "application/json"
     correlationId := some rid
-    replyTo := ← cli.session.replyQueue.get
+    replyTo
     headers
     deliveryMode := some 2
   }
-  let c ← cli.session.conn.get
-  Session.remember cli.session rid {
-    exchange, routingKey := target, body, properties := props, mandatory := true
-  }
+  unless cli.session.policy.failOutstanding do
+    ioRun (Session.remember cli.session rid {
+      exchange, routingKey := target, body, properties := props, mandatory := true
+    })
   try
-    basicPublish c cli.session.channelId body exchange target props (mandatory := true) (wantConfirm := true)
+    let confirmP ← basicPublishKickAsync c cli.session.channelId body exchange target props
+      (mandatory := true) (wantConfirm := true)
+    let replyJob := waitReplyWaiterAsync c.st rid
+    let msg ←
+      match confirmP with
+      | some p => do
+        let (_conf, m) ← Async.concurrently (awaitExceptAsync p) replyJob
+        pure m
+      | none => replyJob
+    basicAckAsync c cli.session.channelId msg.deliveryTag
+    ioRun (Session.forget cli.session rid)
+    if msg.properties.correlationId != some rid then
+      throw (IO.userError "INVALID_ENVELOPE")
+    match decodeResponse msg.body with
+    | .error _ => throw (IO.userError "INVALID_ENVELOPE")
+    | .ok (.ok v) => return v
+    | .ok (.err code msg _) => throw (IO.userError s!"{code}: {msg}")
   catch e =>
-    Session.forget cli.session rid
+    ioRun (Session.forget cli.session rid)
     throw e
-  let msg ← Session.waitReply cli.session rid
-  if msg.properties.correlationId != some rid then
-    throw (IO.userError "INVALID_ENVELOPE")
-  match decodeResponse msg.body with
-  | .error _ => throw (IO.userError "INVALID_ENVELOPE")
-  | .ok (.ok v) => return v
-  | .ok (.err code msg _) => throw (IO.userError s!"{code}: {msg}")
+
+def RpcClient.request (cli : RpcClient) (target method : String) (params : Json := .obj [])
+    (requestId : Option String := none) (exchange : String := "")
+    (claimsToken : Option String := none) : Async Json :=
+  RpcClient.requestAsync cli target method params requestId exchange claimsToken
+
+/-- N in-flight RPCs on one session (one UV loop; no nested `.block`). -/
+def RpcClient.requestAll (cli : RpcClient) (reqs : List (String × String × Json))
+    (exchange : String := "") : Async (List Json) := do
+  let jobs := reqs.toArray.map fun (target, method, params) =>
+    RpcClient.requestAsync cli target method params (exchange := exchange)
+  let rs ← Async.concurrentlyAll jobs
+  return rs.toList
 
 /-- Lean counterpart of Python `AuthConfig`. The optional hook runs only after
 HS256 (later RS/ES) succeeds. `none` is allow (`authorizeOk = true`). -/
@@ -149,22 +177,31 @@ structure RpcServer where
   handler : String → Json → IO Json
   dedup : Option (IO.Ref DedupState) := none
 
-def RpcServer.serveOnce (srv : RpcServer) (msg : IncomingMessage) : IO Unit := do
+def RpcServer.serveOnceAsync (srv : RpcServer) (msg : IncomingMessage) : Async Unit := do
   let replyTo := msg.properties.replyTo
   let corr := msg.properties.correlationId
-  let out ← handleRpc srv.handler srv.auth srv.dedup msg
+  let out ← ioRun (handleRpc srv.handler srv.auth srv.dedup msg)
   if let some rt := replyTo then
     if rt ≠ "" then
       let props : BasicProperties := {
         contentType := some "application/json"
         correlationId := corr
       }
-      basicPublish srv.conn srv.channelId out "" rt props
-  basicAck srv.conn srv.channelId msg.deliveryTag
+      publishAndAckAsync srv.conn srv.channelId out "" rt props msg.deliveryTag
+    else
+      basicAckAsync srv.conn srv.channelId msg.deliveryTag
+  else
+    basicAckAsync srv.conn srv.channelId msg.deliveryTag
 
-partial def RpcServer.serve (srv : RpcServer) : IO Unit := do
-  let msg ← receive srv.conn 60000
-  RpcServer.serveOnce srv msg
-  RpcServer.serve srv
+def RpcServer.serveOnce (srv : RpcServer) (msg : IncomingMessage) : Async Unit :=
+  RpcServer.serveOnceAsync srv msg
+
+partial def RpcServer.serveAsync (srv : RpcServer) : Async Unit := do
+  let msg ← receiveAsync srv.conn 60000
+  RpcServer.serveOnceAsync srv msg
+  RpcServer.serveAsync srv
+
+partial def RpcServer.serve (srv : RpcServer) : Async Unit :=
+  RpcServer.serveAsync srv
 
 end NuropbRMQ

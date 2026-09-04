@@ -1,11 +1,14 @@
 /* Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
  * Released under Apache 2.0 license as described in the file LICENSE.
  *
- * Optional OpenSSL AMQPS (tls-verify-full). Not linked by defaultTargets.
+ * Optional OpenSSL AMQPS (tls-verify-full). Memory BIO + SSL_ERROR_WANT_*;
+ * no SSL_set_fd and no blocking SSL_connect/read/write. UV owns the TCP
+ * socket. Not linked by defaultTargets.
  */
 #include <lean/lean.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/bio.h>
 #include <openssl/pem.h>
 #include <openssl/pkcs12.h>
 #include <openssl/provider.h>
@@ -17,6 +20,11 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <pthread.h>
+
+#define TLS_DONE 0
+#define TLS_WANT_READ 1
+#define TLS_WANT_WRITE 2
 
 static lean_obj_res io_error(const char *msg) {
   return lean_io_result_mk_error(lean_mk_io_user_error(lean_mk_string(msg)));
@@ -35,36 +43,83 @@ static lean_obj_res io_error_ssl(const char *msg) {
 typedef struct {
   SSL_CTX *ctx;
   SSL *ssl;
-  int fd;
+  BIO *rbio;
+  BIO *wbio;
+  int last_want;
+  int dead;
+  pthread_mutex_t mu;
 } NuropbTls;
 
-static void ensure_ssl(void) {
-  static int once = 0;
-  if (!once) {
-    OPENSSL_init_ssl(0, NULL);
-    OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, NULL);
-    (void)OSSL_PROVIDER_load(NULL, "default");
-    SSL_load_error_strings();
-    OpenSSL_add_ssl_algorithms();
-    once = 1;
-  }
+static pthread_once_t g_ssl_once = PTHREAD_ONCE_INIT;
+
+static void ensure_ssl_once(void) {
+  /* Do not register OPENSSL_cleanup as atexit: process exit races the UV
+     loop thread (`lean_uv_tcp_recv` / task_manager::resolve) and SIGSEGVs. */
+  OPENSSL_init_ssl(OPENSSL_INIT_NO_ATEXIT, NULL);
+  OPENSSL_init_crypto(OPENSSL_INIT_NO_ATEXIT | OPENSSL_INIT_LOAD_CONFIG, NULL);
+  (void)OSSL_PROVIDER_load(NULL, "default");
+  SSL_load_error_strings();
+  OpenSSL_add_ssl_algorithms();
 }
 
-static lean_obj_res finish_ssl(SSL_CTX *ctx, uint32_t fd, const char *hn) {
+static void ensure_ssl(void) {
+  pthread_once(&g_ssl_once, ensure_ssl_once);
+}
+
+static NuropbTls *sess_lock(uint64_t handle) {
+  NuropbTls *sess = (NuropbTls *)(uintptr_t)handle;
+  if (!sess) return NULL;
+  pthread_mutex_lock(&sess->mu);
+  if (sess->dead || !sess->ssl) {
+    pthread_mutex_unlock(&sess->mu);
+    return NULL;
+  }
+  return sess;
+}
+
+static void sess_unlock(NuropbTls *sess) {
+  pthread_mutex_unlock(&sess->mu);
+}
+
+static uint64_t pack_want(uint32_t st, uint32_t n) {
+  return ((uint64_t)st << 32) | (uint64_t)n;
+}
+
+static lean_object *empty_bytes(void) {
+  return lean_alloc_sarray(1, 0, 0);
+}
+
+static int ssl_want(SSL *ssl, int r) {
+  int err = SSL_get_error(ssl, r);
+  if (err == SSL_ERROR_WANT_READ) return TLS_WANT_READ;
+  if (err == SSL_ERROR_WANT_WRITE) return TLS_WANT_WRITE;
+  return -1;
+}
+
+static lean_obj_res finish_new(SSL_CTX *ctx, const char *hn) {
   SSL *ssl = SSL_new(ctx);
   if (!ssl) {
     SSL_CTX_free(ctx);
     return io_error("SSL_new failed");
   }
-  SSL_set_fd(ssl, (int)fd);
+  BIO *rbio = BIO_new(BIO_s_mem());
+  BIO *wbio = BIO_new(BIO_s_mem());
+  if (!rbio || !wbio) {
+    if (rbio) BIO_free(rbio);
+    if (wbio) BIO_free(wbio);
+    SSL_free(ssl);
+    SSL_CTX_free(ctx);
+    return io_error("BIO_new failed");
+  }
+  BIO_set_mem_eof_return(rbio, -1);
+  BIO_set_mem_eof_return(wbio, -1);
+  SSL_set_bio(ssl, rbio, wbio);
+  SSL_clear_mode(ssl, SSL_MODE_AUTO_RETRY);
+  SSL_set_mode(ssl, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+  SSL_set_connect_state(ssl);
   if (hn[0] != '\0') {
     SSL_set_tlsext_host_name(ssl, hn);
     SSL_set1_host(ssl, hn);
-  }
-  if (SSL_connect(ssl) != 1) {
-    SSL_free(ssl);
-    SSL_CTX_free(ctx);
-    return io_error("SSL_connect failed (tls-verify-full)");
   }
   NuropbTls *sess = (NuropbTls *)malloc(sizeof(NuropbTls));
   if (!sess) {
@@ -74,12 +129,28 @@ static lean_obj_res finish_ssl(SSL_CTX *ctx, uint32_t fd, const char *hn) {
   }
   sess->ctx = ctx;
   sess->ssl = ssl;
-  sess->fd = (int)fd;
+  sess->rbio = rbio;
+  sess->wbio = wbio;
+  sess->last_want = TLS_DONE;
+  sess->dead = 0;
+  if (pthread_mutex_init(&sess->mu, NULL) != 0) {
+    SSL_free(ssl);
+    SSL_CTX_free(ctx);
+    free(sess);
+    return io_error("tls mutex init failed");
+  }
   return lean_io_result_mk_ok(lean_box_uint64((uint64_t)(uintptr_t)sess));
 }
 
-LEAN_EXPORT lean_obj_res nuropb_tls_connect(
-    uint32_t fd,
+static SSL_CTX *new_verify_ctx(void) {
+  const SSL_METHOD *method = TLS_client_method();
+  SSL_CTX *ctx = SSL_CTX_new(method);
+  if (!ctx) return NULL;
+  SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+  return ctx;
+}
+
+LEAN_EXPORT lean_obj_res nuropb_tls_new(
     b_lean_obj_arg hostname,
     b_lean_obj_arg ca_pem,
     b_lean_obj_arg cert_pem,
@@ -87,10 +158,8 @@ LEAN_EXPORT lean_obj_res nuropb_tls_connect(
     lean_obj_arg w) {
   (void)w;
   ensure_ssl();
-  const SSL_METHOD *method = TLS_client_method();
-  SSL_CTX *ctx = SSL_CTX_new(method);
+  SSL_CTX *ctx = new_verify_ctx();
   if (!ctx) return io_error("SSL_CTX_new failed");
-  SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
   const char *ca = lean_string_cstr(ca_pem);
   if (ca[0] != '\0') {
     BIO *bio = BIO_new_mem_buf(ca, -1);
@@ -125,11 +194,10 @@ LEAN_EXPORT lean_obj_res nuropb_tls_connect(
     X509_free(xc);
     EVP_PKEY_free(pk);
   }
-  return finish_ssl(ctx, fd, lean_string_cstr(hostname));
+  return finish_new(ctx, lean_string_cstr(hostname));
 }
 
-LEAN_EXPORT lean_obj_res nuropb_tls_connect_pkcs12(
-    uint32_t fd,
+LEAN_EXPORT lean_obj_res nuropb_tls_new_pkcs12(
     b_lean_obj_arg hostname,
     b_lean_obj_arg ca_pem,
     b_lean_obj_arg p12_path,
@@ -137,10 +205,8 @@ LEAN_EXPORT lean_obj_res nuropb_tls_connect_pkcs12(
     lean_obj_arg w) {
   (void)w;
   ensure_ssl();
-  const SSL_METHOD *method = TLS_client_method();
-  SSL_CTX *ctx = SSL_CTX_new(method);
+  SSL_CTX *ctx = new_verify_ctx();
   if (!ctx) return io_error("SSL_CTX_new failed");
-  SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
   const char *ca = lean_string_cstr(ca_pem);
   if (ca[0] != '\0') {
     BIO *bio = BIO_new_mem_buf(ca, -1);
@@ -206,55 +272,198 @@ LEAN_EXPORT lean_obj_res nuropb_tls_connect_pkcs12(
     }
     sk_X509_pop_free(ca_stack, X509_free);
   }
-  return finish_ssl(ctx, fd, lean_string_cstr(hostname));
+  return finish_new(ctx, lean_string_cstr(hostname));
 }
 
-LEAN_EXPORT lean_obj_res nuropb_tls_send(uint64_t handle, b_lean_obj_arg buf, lean_obj_arg w) {
+LEAN_EXPORT lean_obj_res nuropb_tls_handshake_step(uint64_t handle, lean_obj_arg w) {
   (void)w;
-  NuropbTls *sess = (NuropbTls *)(uintptr_t)handle;
-  size_t n = lean_sarray_size(buf);
-  uint8_t *data = lean_sarray_cptr(buf);
-  size_t sent = 0;
-  while (sent < n) {
-    int r = SSL_write(sess->ssl, data + sent, (int)(n - sent));
-    if (r <= 0) return io_error("SSL_write failed");
-    sent += (size_t)r;
+  NuropbTls *sess = sess_lock(handle);
+  if (!sess) return io_error("tls handle closed");
+  int r = SSL_do_handshake(sess->ssl);
+  if (r == 1) {
+    int vok = SSL_get_verify_result(sess->ssl) == X509_V_OK;
+    sess_unlock(sess);
+    if (!vok) return io_error("TLS peer verify failed (tls-verify-full)");
+    return lean_io_result_mk_ok(lean_unsigned_to_nat(TLS_DONE));
   }
+  int want = ssl_want(sess->ssl, r);
+  sess_unlock(sess);
+  if (want < 0) return io_error_ssl("SSL_do_handshake failed (tls-verify-full)");
+  return lean_io_result_mk_ok(lean_unsigned_to_nat((unsigned)want));
+}
+
+LEAN_EXPORT lean_obj_res nuropb_tls_feed(uint64_t handle, b_lean_obj_arg buf, lean_obj_arg w) {
+  (void)w;
+  NuropbTls *sess = sess_lock(handle);
+  if (!sess || !sess->rbio) {
+    if (sess) sess_unlock(sess);
+    return io_error("tls handle closed");
+  }
+  size_t n = lean_sarray_size(buf);
+  if (n == 0) {
+    sess_unlock(sess);
+    return lean_io_result_mk_ok(lean_box(0));
+  }
+  uint8_t *data = lean_sarray_cptr(buf);
+  int r = BIO_write(sess->rbio, data, (int)n);
+  sess_unlock(sess);
+  if (r <= 0 || (size_t)r != n) return io_error("BIO_write (tls feed) failed");
   return lean_io_result_mk_ok(lean_box(0));
 }
 
-LEAN_EXPORT lean_obj_res nuropb_tls_pending(uint64_t handle, lean_obj_arg w) {
+LEAN_EXPORT lean_obj_res nuropb_tls_drain(uint64_t handle, lean_obj_arg w) {
   (void)w;
-  NuropbTls *sess = (NuropbTls *)(uintptr_t)handle;
-  if (!sess || !sess->ssl) return lean_io_result_mk_ok(lean_box(0));
-  int n = SSL_pending(sess->ssl);
-  return lean_io_result_mk_ok(lean_box(n > 0 ? 1 : 0));
+  NuropbTls *sess = sess_lock(handle);
+  if (!sess || !sess->wbio) {
+    if (sess) sess_unlock(sess);
+    return lean_io_result_mk_ok(empty_bytes());
+  }
+  unsigned char tmp[16384];
+  size_t cap = 16384;
+  size_t used = 0;
+  uint8_t *acc = (uint8_t *)malloc(cap);
+  if (!acc) {
+    sess_unlock(sess);
+    return io_error("oom");
+  }
+  for (;;) {
+    int r = BIO_read(sess->wbio, tmp, (int)sizeof(tmp));
+    if (r <= 0) break;
+    if (used + (size_t)r > cap) {
+      cap = (used + (size_t)r) * 2;
+      uint8_t *nacc = (uint8_t *)realloc(acc, cap);
+      if (!nacc) {
+        free(acc);
+        sess_unlock(sess);
+        return io_error("oom");
+      }
+      acc = nacc;
+    }
+    memcpy(acc + used, tmp, (size_t)r);
+    used += (size_t)r;
+  }
+  sess_unlock(sess);
+  if (used == 0) {
+    free(acc);
+    return lean_io_result_mk_ok(empty_bytes());
+  }
+  lean_object *arr = lean_alloc_sarray(1, 0, used);
+  memcpy(lean_sarray_cptr(arr), acc, used);
+  lean_sarray_set_size(arr, used);
+  free(acc);
+  return lean_io_result_mk_ok(arr);
 }
 
-LEAN_EXPORT lean_obj_res nuropb_tls_recv(uint64_t handle, uint32_t max, lean_obj_arg w) {
+LEAN_EXPORT lean_obj_res nuropb_tls_write(uint64_t handle, b_lean_obj_arg buf, lean_obj_arg w) {
   (void)w;
-  NuropbTls *sess = (NuropbTls *)(uintptr_t)handle;
+  NuropbTls *sess = sess_lock(handle);
+  if (!sess) return io_error("tls handle closed");
+  size_t n = lean_sarray_size(buf);
+  if (n == 0) {
+    sess->last_want = TLS_DONE;
+    sess_unlock(sess);
+    return lean_io_result_mk_ok(lean_box_uint64(pack_want(TLS_DONE, 0)));
+  }
+  uint8_t *data = lean_sarray_cptr(buf);
+  int r = SSL_write(sess->ssl, data, (int)n);
+  if (r > 0) {
+    sess->last_want = TLS_DONE;
+    sess_unlock(sess);
+    return lean_io_result_mk_ok(lean_box_uint64(pack_want(TLS_DONE, (uint32_t)r)));
+  }
+  int want = ssl_want(sess->ssl, r);
+  if (want < 0) {
+    sess_unlock(sess);
+    return io_error_ssl("SSL_write failed");
+  }
+  sess->last_want = want;
+  sess_unlock(sess);
+  return lean_io_result_mk_ok(lean_box_uint64(pack_want((uint32_t)want, 0)));
+}
+
+LEAN_EXPORT lean_obj_res nuropb_tls_read(uint64_t handle, uint32_t max, lean_obj_arg w) {
+  (void)w;
+  NuropbTls *sess = sess_lock(handle);
+  if (!sess) return io_error("tls handle closed");
   if (max == 0) max = 4096;
   lean_object *arr = lean_alloc_sarray(1, 0, max);
   uint8_t *dst = lean_sarray_cptr(arr);
   int r = SSL_read(sess->ssl, dst, (int)max);
-  if (r <= 0) {
-    lean_dec(arr);
-    return io_error("SSL_read failed");
+  if (r > 0) {
+    sess->last_want = TLS_DONE;
+    lean_sarray_set_size(arr, (size_t)r);
+    sess_unlock(sess);
+    return lean_io_result_mk_ok(arr);
   }
-  lean_sarray_set_size(arr, (size_t)r);
-  return lean_io_result_mk_ok(arr);
+  lean_dec(arr);
+  if (r == 0) {
+    int err = SSL_get_error(sess->ssl, r);
+    if (err == SSL_ERROR_ZERO_RETURN) {
+      sess->last_want = TLS_DONE;
+      sess_unlock(sess);
+      return lean_io_result_mk_ok(empty_bytes());
+    }
+  }
+  int want = ssl_want(sess->ssl, r);
+  if (want < 0) {
+    sess_unlock(sess);
+    return io_error_ssl("SSL_read failed");
+  }
+  sess->last_want = want;
+  sess_unlock(sess);
+  return lean_io_result_mk_ok(empty_bytes());
+}
+
+LEAN_EXPORT lean_obj_res nuropb_tls_pending(uint64_t handle, lean_obj_arg w) {
+  (void)w;
+  NuropbTls *sess = sess_lock(handle);
+  if (!sess) return lean_io_result_mk_ok(lean_box(0));
+  int n = SSL_pending(sess->ssl);
+  sess_unlock(sess);
+  return lean_io_result_mk_ok(lean_box(n > 0 ? 1 : 0));
+}
+
+LEAN_EXPORT lean_obj_res nuropb_tls_last_want(uint64_t handle, lean_obj_arg w) {
+  (void)w;
+  NuropbTls *sess = (NuropbTls *)(uintptr_t)handle;
+  if (!sess) return lean_io_result_mk_ok(lean_unsigned_to_nat(TLS_DONE));
+  pthread_mutex_lock(&sess->mu);
+  int want = sess->dead ? TLS_DONE : sess->last_want;
+  pthread_mutex_unlock(&sess->mu);
+  return lean_io_result_mk_ok(lean_unsigned_to_nat((unsigned)want));
+}
+
+LEAN_EXPORT lean_obj_res nuropb_tls_shutdown_step(uint64_t handle, lean_obj_arg w) {
+  (void)w;
+  NuropbTls *sess = sess_lock(handle);
+  if (!sess) return lean_io_result_mk_ok(lean_unsigned_to_nat(TLS_DONE));
+  int r = SSL_shutdown(sess->ssl);
+  if (r >= 0) {
+    sess_unlock(sess);
+    return lean_io_result_mk_ok(lean_unsigned_to_nat(TLS_DONE));
+  }
+  int want = ssl_want(sess->ssl, r);
+  sess_unlock(sess);
+  if (want < 0) return lean_io_result_mk_ok(lean_unsigned_to_nat(TLS_DONE));
+  return lean_io_result_mk_ok(lean_unsigned_to_nat((uint32_t)want));
 }
 
 LEAN_EXPORT lean_obj_res nuropb_tls_close(uint64_t handle, lean_obj_arg w) {
   (void)w;
   NuropbTls *sess = (NuropbTls *)(uintptr_t)handle;
-  if (sess) {
-    SSL_shutdown(sess->ssl);
-    SSL_free(sess->ssl);
-    SSL_CTX_free(sess->ctx);
-    free(sess);
+  if (!sess) return lean_io_result_mk_ok(lean_box(0));
+  pthread_mutex_lock(&sess->mu);
+  if (!sess->dead) {
+    if (sess->ssl) SSL_free(sess->ssl);
+    if (sess->ctx) SSL_CTX_free(sess->ctx);
+    sess->ssl = NULL;
+    sess->ctx = NULL;
+    sess->rbio = NULL;
+    sess->wbio = NULL;
+    sess->dead = 1;
   }
+  pthread_mutex_unlock(&sess->mu);
+  /* Keep the session allocation so a late FFI call cannot UAF the mutex. */
   return lean_io_result_mk_ok(lean_box(0));
 }
 

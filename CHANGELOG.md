@@ -6,9 +6,21 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Lean POSIX AMQP/mesh client (`import NuropbRMQ`) on the same kernels as the
-  frozen Python 1.0 API. Default `lake build` is libc only (no OpenSSL)
-- Optional AMQPS via `NuropbRMQTls.connect` / `Transport` (`tls-verify-full` PEM)
+- Lean AMQP/mesh client (`import NuropbRMQ`) on the same kernels as the
+  frozen Python 1.0 API. PLAIN sockets are `Std.Async.TCP` (libuv). Default
+  `lake build` does not link OpenSSL
+- Lean async IO (lean-grpc v1.3.0 shape): `AsyncByteTransport`, connection
+  demux waiters, `requestAsync` / `serveAsync`, `lean_async_tcp_smoke`,
+  `smoke_lean_rpc_overlap.sh`. Library `connect` / `request` / `serve` are
+  `Async`; `.block` only at process `main`
+- Lean AMQP IO: `TCP_NODELAY`, one `aio.send` per `encodeBurst`, 64 KiB
+  offset recv buffer, cached session handles, `HashMap` confirm/reply waiters
+- Lean RPC IO: confirm overlapped with reply wait; server reply+ack one write;
+  `encodePublish` for small bodies; single-body inbound slice
+- Lean write-combine: pumped `sendRawAsync` enqueues complete bursts;
+  `flushWrites` concatenates into one `aio.send`
+- Optional AMQPS via `NuropbRMQTls.connectAsync` (`tls-verify-full` PEM;
+  UV-loop memory BIO / `SSL_ERROR_WANT_*`; no `SSL_set_fd`)
 - Lean ↔ Python interop, Lean AMQPS, Lean IO coverage, and Lean reply-forge 403
   smokes (`scripts/smoke_interop.sh`, `smoke_lean_amqps.sh`,
   `smoke_lean_coverage.sh`, `smoke_lean_reply_acl.sh`,
@@ -19,7 +31,7 @@ All notable changes to this project are documented in this file.
 - Lean SASL `EXTERNAL` when the broker offers it and a client PEM pair or
   PKCS#12 bag is set (`NuropbRMQTls` / OpenSSL FFI only)
 - Lean RS256/ES256 JWT verify on `NuropbRMQTls` / OpenSSL FFI (PyJWT goldens;
-  default `lake build` stays libc / HS256)
+  default `lake build` stays `Std.Async` / HS256, no OpenSSL)
 - Scoped `matchesRegex` (Lean + Python) for documented ACL profiles as regex,
   plus a live narrower-than-prefix regex 403; full broker engine stays residual
 - Optional `RpcServer(dedup_window=N)` / Lean `tryDedup`: process-local
@@ -37,9 +49,19 @@ All notable changes to this project are documented in this file.
 
 - Park republish remains at-least-once *delivery* (optional `dedup_window` is
   in-process handler-once, not clustered / exactly-once AMQP)
-- Default `lake build` does not link OpenSSL (PKCS#12 / mTLS / RS256/ES256 stay
-  on `NuropbRMQTls` only)
-- HMAC hardness and the full RabbitMQ regex engine / HA stay residual
+- Default `lake build` does not link OpenSSL (Lean PKCS#12 / mTLS / RS256/ES256
+  stay on `NuropbRMQTls`). Python 1.0 verifies RS256/ES256 via PyJWT on
+  `AuthConfig` (`[claims]` extra)
+- Lean TLS is UV-loop memory BIO / `SSL_ERROR_WANT_*`. Python AMQPS is
+  stdlib `ssl` on the asyncio loop. Laptop remasure is not an AMQPS SLO
+- HMAC / SHA-256 hardness and the full RabbitMQ regex engine / HA stay residual
+- Lean raw firehose is in the same band as Python on a laptop PLAIN broker,
+  not a 17k msgs/s SLO (that figure was POSIX steal-the-socket)
+- Python `AmqpConnection.close` does not fail raw confirm / `receive` waiters
+  (`Session.close` still `discard_all`s RPC futures). `confirm=True` with
+  `drain=False` is unsupported (RPC uses `drain=False` + `confirm=False`)
+- Lean `MeshService.announce` is not wired in `start`; Python `announce=True`
+  publishes. Lean `dial` hook and `requestAll` are Lean-only IO
 
 ## 1.0.0 — 2026-09-01
 

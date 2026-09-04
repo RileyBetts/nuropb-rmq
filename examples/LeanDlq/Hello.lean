@@ -3,18 +3,20 @@ Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 
+import Std.Async
 import Common
 import NuropbRMQ
 import NuropbRmq.Pattern.Envelope
 import NuropbRmq.Pattern.Errors
 
+open Std.Async
 open NuropbRmq.Pattern.Envelope
 open NuropbRmq.Pattern.Errors
 open NuropbRMQ
 
-def main : IO Unit := do
-  let cfg ← Examples.Common.cfg
-  let id ← Socket.hexId
+def main : IO Unit := Examples.Common.runAsync do
+  let cfg ← liftM Examples.Common.cfg
+  let id ← liftM Socket.hexId
   let work := s!"nr.ex.lean.ttl.{id}"
   let dlq := s!"nr.ex.lean.dlq.{id}"
   let dlx := s!"nr.ex.lean.dlx.{id}"
@@ -29,7 +31,7 @@ def main : IO Unit := do
   basicPublish c 1 "dlq-probe".toUTF8 "" work
     { deliveryMode := some 2, replyTo := some reply, correlationId := some "dlq-1" }
     (wantConfirm := true)
-  IO.sleep 800
+  sleep (Std.Time.Millisecond.Offset.ofNat 800)
   let proc ← DlqTimeoutProcessor.start cfg dlq
   DlqTimeoutProcessor.step proc
   let msg ← receive c 8000
@@ -39,6 +41,6 @@ def main : IO Unit := do
     if code != REQUEST_TIMEOUT then
       throw (IO.userError s!"expected REQUEST_TIMEOUT, got {code}")
   | _ => throw (IO.userError "expected JSON-RPC timeout error")
-  IO.println "dlq: ok REQUEST_TIMEOUT"
+  liftM (IO.println "dlq: ok REQUEST_TIMEOUT")
   DlqTimeoutProcessor.close proc
-  NuropbRMQ.close c
+  close c

@@ -17,7 +17,7 @@ pure proof library **`NuropbRMQSpec`** (modules stay `NuropbRmq.*`).
 ```bash
 # from repository root — not `cd specs/lean`
 lake build NuropbRMQSpec   # proofs only (no FFI / sockets)
-lake build NuropbRMQ       # POSIX AMQP client
+lake build NuropbRMQ       # Std.Async.TCP AMQP client (libuv; no OpenSSL)
 lake exe oracle .          # golden vectors under specs/vectors/
 ```
 
@@ -31,7 +31,7 @@ require NuropbRMQ from git "https://github.com/RileyBetts/nuropb-rmq" @ "<tag>"
 ```
 
 then `import NuropbRMQ`. Optional AMQPS is `import NuropbRMQTls` /
-`NuropbRMQTls.connect` (`lake build NuropbRMQTls`; OpenSSL; not a default
-target). mTLS PEM or PKCS#12 + SASL `EXTERNAL`, and RS256/ES256 JWT verify,
-are supported on that target.
+`NuropbRMQTls.connectAsync` (`lake build NuropbRMQTls`; OpenSSL memory BIO
+on the UV loop; not a default target). mTLS PEM or PKCS#12 + SASL `EXTERNAL`,
+and RS256/ES256 JWT verify, are supported on that target.
 The Python wheel stays `nuropb_rmq` and does not embed Lean FFI.

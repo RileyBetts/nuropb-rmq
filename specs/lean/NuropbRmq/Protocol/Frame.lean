@@ -58,11 +58,34 @@ def encodeFrame (f : Frame) (frameMax : Nat := defaultFrameMax) : Option ByteArr
       if f.payload.size > payloadMax then none
       else if !decodeAccepted f.payload.size 0 frameMax defaultMaxTableDepth then none
       else
-        let buf := pushU8 ByteArray.empty f.kind.toU8
+        let buf := pushU8 (ByteArray.emptyWithCapacity (8 + f.payload.size)) f.kind.toU8
         let buf := pushU16be buf f.channel
         let buf := pushU32be buf f.payload.size
         let buf := buf ++ f.payload
         some (buf.push frameEnd)
+
+/-- One TCP write for method+header+body (Python `_write_frame` + one `_drain`). -/
+def encodeBurst (frames : List Frame) (frameMax : Nat := defaultFrameMax) : Option ByteArray :=
+  match maxFramePayload frameMax with
+  | none => none
+  | some payloadMax =>
+    let rec legal : List Frame → Bool
+      | [] => true
+      | f :: rest =>
+        f.channel ≤ 0xffff && f.payload.size ≤ payloadMax
+          && decodeAccepted f.payload.size 0 frameMax defaultMaxTableDepth
+          && legal rest
+    if !legal frames then none
+    else
+      let sz := frames.foldl (init := 0) (fun acc f => acc + 8 + f.payload.size)
+      let rec go (buf : ByteArray) : List Frame → ByteArray
+        | [] => buf
+        | f :: rest =>
+          let buf := pushU8 buf f.kind.toU8
+          let buf := pushU16be buf f.channel
+          let buf := pushU32be buf f.payload.size
+          go ((buf ++ f.payload).push frameEnd) rest
+      some (go (ByteArray.emptyWithCapacity sz) frames)
 
 /-- Decode one frame. Returns frame and next offset. Size is checked before copy. -/
 def decodeFrame (data : ByteArray) (frameMax : Nat := defaultFrameMax) (offset : Nat := 0) :

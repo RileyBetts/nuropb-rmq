@@ -3,6 +3,7 @@ Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 
+import Std.Async
 import NuropbRmq.Session.Correlation
 import NuropbRmq.Session.Reconnect
 import NuropbRmq.Session.Ids
@@ -12,6 +13,7 @@ import NuropbRMQ.Socket
 
 namespace NuropbRMQ
 
+open Std.Async
 open NuropbRmq.Session
 open NuropbRmq.Session.Ids
 open NuropbRmq.Pattern.Errors
@@ -36,6 +38,8 @@ structure Session where
   conn : IO.Ref AmqpConnection
   channelId : Nat := 1
   replyQueue : IO.Ref (Option String)
+  /-- Cached after `start` so RPC does not `ioRun` both refs every call. -/
+  rpcCache : IO.Ref (Option (AmqpConnection × String))
   pending : IO.Ref (List String)
   parked : IO.Ref (List (String × ParkedPublish))
   replies : IO.Ref (List IncomingMessage)
@@ -56,6 +60,7 @@ def mkSession (cfg : ConnectionConfig := {}) (policy : ReconnectPolicy := {}) : 
     config := cfg
     conn := dummy
     replyQueue := ← IO.mkRef none
+    rpcCache := ← IO.mkRef none
     pending := ← IO.mkRef []
     parked := ← IO.mkRef []
     replies := ← IO.mkRef []
@@ -64,22 +69,41 @@ def mkSession (cfg : ConnectionConfig := {}) (policy : ReconnectPolicy := {}) : 
     started := ← IO.mkRef false
   }
 
-def Session.start (s : Session) : IO Unit := do
-  let c ← connect s.config
+/-- `dial` defaults to PLAIN `connectAsync`. AMQPS passes `NuropbRMQTls.connectAsync`
+    so `NuropbRMQ` does not import OpenSSL. -/
+def Session.startAsync (s : Session)
+    (dial : ConnectionConfig → Async AmqpConnection := defaultDial) : Async Unit := do
+  let c ← dial s.config
   let _ ← openChannel c s.channelId
-  let id ← Socket.hexId
+  confirmSelectAsync c s.channelId
+  let id ← ioRun Socket.hexId
   let q ← queueDeclare c s.channelId s!"nr.reply.{id}" (exclusive := true) (autoDelete := true)
   let _ ← basicConsume c s.channelId q
-  s.conn.set c
-  s.replyQueue.set (some q)
-  s.started.set true
+  ioRun (s.conn.set c)
+  ioRun (s.replyQueue.set (some q))
+  ioRun (s.rpcCache.set (some (c, q)))
+  ioRun (s.started.set true)
 
-def Session.close (s : Session) : IO Unit := do
-  s.started.set false
-  s.pending.set []
-  s.parked.set []
-  s.replyQueue.set none
-  try NuropbRMQ.close (← s.conn.get) catch _ => pure ()
+def Session.start (s : Session)
+    (dial : ConnectionConfig → Async AmqpConnection := defaultDial) : Async Unit :=
+  Session.startAsync s dial
+
+def Session.rpcHandles (s : Session) : IO (AmqpConnection × String) := do
+  match ← s.rpcCache.get with
+  | some h => return h
+  | none =>
+    let c ← s.conn.get
+    let q := (← s.replyQueue.get).getD ""
+    s.rpcCache.set (some (c, q))
+    return (c, q)
+
+def Session.close (s : Session) : Async Unit := do
+  ioRun (s.started.set false)
+  ioRun (s.pending.set [])
+  ioRun (s.parked.set [])
+  ioRun (s.replyQueue.set none)
+  ioRun (s.rpcCache.set none)
+  try NuropbRMQ.close (← ioRun (s.conn.get : IO AmqpConnection)) catch _ => pure ()
 
 def Session.register (s : Session) (requestId : Option String) : IO String := do
   unless (← s.replyQueueOpen) do throw (IO.userError "session not started")
@@ -99,53 +123,44 @@ def Session.forget (s : Session) (rid : String) : IO Unit := do
   s.parked.modify fun xs => xs.filter (fun p => p.1 != rid)
   s.pending.modify fun xs => xs.filter (· != rid)
 
-partial def Session.drainReplies (s : Session) : IO Unit := do
-  let c ← s.conn.get
+def Session.waitReplyAsync (s : Session) (rid : String) (timeoutMs : Nat := 60000) :
+    Async IncomingMessage := do
   try
-    let msg ← receive c 50
-    s.replies.modify (msg :: ·)
-    Session.drainReplies s
-  catch _ => pure ()
-
-partial def Session.waitReplyUntil (s : Session) (rid : String) (deadline : Nat) : IO IncomingMessage := do
-  Session.drainReplies s
-  let found := (← s.replies.get).find? (fun m => m.properties.correlationId == some rid)
-  match found with
-  | some msg =>
-    s.replies.modify fun xs => xs.filter (fun m => m.properties.correlationId != some rid)
-    let c ← s.conn.get
-    basicAck c s.channelId msg.deliveryTag
-    Session.forget s rid
+    let c ← ioRun (s.conn.get : IO AmqpConnection)
+    let msg ← waitReplyWaiterAsync c.st rid timeoutMs
+    basicAckAsync c s.channelId msg.deliveryTag
+    ioRun (Session.forget s rid : IO Unit)
     return msg
-  | none =>
-    if (← IO.monoMsNow) ≥ deadline then
-      throw (IO.userError "REQUEST_TIMEOUT")
-    IO.sleep 20
-    Session.waitReplyUntil s rid deadline
+  catch e =>
+    ioRun (Session.forget s rid : IO Unit)
+    throw e
 
-def Session.waitReply (s : Session) (rid : String) (timeoutMs : Nat := 60000) : IO IncomingMessage := do
-  Session.waitReplyUntil s rid ((← IO.monoMsNow) + timeoutMs)
+def Session.waitReply (s : Session) (rid : String) (timeoutMs : Nat := 60000) :
+    Async IncomingMessage :=
+  Session.waitReplyAsync s rid timeoutMs
 
-def Session.reconnect (s : Session) : IO Unit := do
+def Session.reconnect (s : Session)
+    (dial : ConnectionConfig → Async AmqpConnection := defaultDial) : Async Unit := do
   let fail := s.policy.failOutstanding
-  s.started.set false
+  ioRun (s.started.set false)
   if fail then
-    s.pending.set []
-    s.parked.set []
-  try NuropbRMQ.close (← s.conn.get) catch _ => pure ()
-  s.replyQueue.set none
-  s.epoch.modify (· + 1)
-  Session.start s
+    ioRun (s.pending.set [])
+    ioRun (s.parked.set [])
+  try NuropbRMQ.close (← ioRun (s.conn.get : IO AmqpConnection)) catch _ => pure ()
+  ioRun (s.replyQueue.set none)
+  ioRun (s.rpcCache.set none)
+  ioRun (s.epoch.modify (· + 1))
+  Session.startAsync s dial
   unless fail do
-    let parked ← s.parked.get
-    let c ← s.conn.get
-    let q := (← s.replyQueue.get).getD ""
+    let parked ← ioRun (s.parked.get : IO (List (String × ParkedPublish)))
+    let c ← ioRun (s.conn.get : IO AmqpConnection)
+    let q := (← ioRun (s.replyQueue.get : IO (Option String))).getD ""
     for (rid, env) in parked do
       let props := { env.properties with replyTo := some q, correlationId := some rid }
       try
-        basicPublish c s.channelId env.body env.exchange env.routingKey props env.mandatory true
+        basicPublishAsync c s.channelId env.body env.exchange env.routingKey props env.mandatory true
       catch e =>
-        Session.forget s rid
+        ioRun (Session.forget s rid : IO Unit)
         throw e
 
 end NuropbRMQ

@@ -37,7 +37,8 @@ lake build NuropbRMQTls lean_amqps_mtls
 
 export NUROPB_RMQ_TLS=1
 export NUROPB_RMQ_HOST="${NUROPB_RMQ_HOST:-127.0.0.1}"
-export NUROPB_RMQ_PORT="${NUROPB_RMQ_PORT:-5671}"
+# Do not inherit a PLAIN leftover (`NUROPB_RMQ_PORT=5672` → wrong version number).
+export NUROPB_RMQ_PORT="${NUROPB_RMQ_AMQPS_PORT:-5671}"
 export NUROPB_RMQ_CA_FILE="${NUROPB_RMQ_CA_FILE:-$ROOT/dev/amqps/ca.pem}"
 export NUROPB_RMQ_CERT_FILE="${NUROPB_RMQ_CERT_FILE:-$ROOT/dev/amqps/client.pem}"
 export NUROPB_RMQ_KEY_FILE="${NUROPB_RMQ_KEY_FILE:-$ROOT/dev/amqps/client.key}"

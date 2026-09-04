@@ -35,6 +35,7 @@ correspondence for contributors is in [`specs/lean/CORRESPONDENCE.md`](../specs/
 - [ConnectionConfig fields](reference/connection-config.md)
 - [Environment variables](reference/env-vars.md) — `NUROPB_RMQ_*` in examples/tests
 - [Testing regime](reference/testing-regime.md) — proof and test layers, attack surfaces
+- [Lean async IO](reference/lean-async-io.md) — `Std.Async.TCP`, waiters, UV-loop TLS
 - [Roadmap](ROADMAP.md) — done on `development`, next Lean IO, residuals
 
 ## Examples

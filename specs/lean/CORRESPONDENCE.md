@@ -6,22 +6,37 @@ property-based tests + manual review. No code extraction.
 
 ## Alignment findings (2026-09-04)
 
-Re-audit of SpeC++ / Lean / Python against this document after the Lean
-client Transport split and coverage smokes.
+Re-audit of SpeC++ / Lean / Python after Lean Async-only APIs + UV-loop
+memory BIO, plus a Python 1.0 implementation review (`api.py` freeze held).
 
 | Area | Status | Notes |
 |---|---|---|
 | Protocol inv 1–7 | **Aligned** | Includes `legalSend updateSecret` (OPEN_OK only), `publishAllowed` while blocked, heartbeat miss-count event (2× → ERROR). Channel `allowsOps` / `Reachable` witnesses in Lean. |
-| Inv 7 vs watchdog | **Aligned** | Lean `heartbeatPeer` miss count; Python `_heartbeat_loop` still owns wall-clock. |
+| Inv 7 vs watchdog | **Aligned** | Lean `heartbeatPeer` miss count; Python `_heartbeat_loop` owns wall-clock and resets on **every** inbound frame (Lean refreshes `lastPeerMs` on heartbeat / idle). |
 | Session Phase 1b | **Aligned** | First-wins / reply-open register gate; Lean `Ids.validId` charset theorems (Python `validate_id`). |
-| Session Phase 2 | **Aligned** | Fail-fast `onDisconnect` clears pending; `onDisconnectPark` + `wellFormedPark` (pending may survive the reply-queue gap); `onReconnect` keeps count. |
-| Pattern mesh/claims | **Aligned** | `tryAuth` decision tree plus executable HS256 `Pattern.Jwt.verifyHs256` and opaque `authorizeOk` / Lean IO `AuthConfig.authorize`. Lean IO claims smoke uses `goldenToken` plus deny/allow. |
-| Pattern ACL | **Aligned** | `Pattern.Acl` prefix + scoped `matchesRegex`; Python `patterns/acl.py`; live prefix and narrower-regex 403. |
+| Session Phase 2 | **Aligned** | Fail-fast `onDisconnect` clears pending; `onDisconnectPark` + `wellFormedPark`; `onReconnect` keeps count. Python auto-reconnects on loss; Lean exposes `Session.reconnect` for the caller. |
+| Pattern mesh/claims | **Aligned** | `tryAuth` plus HS256 `Pattern.Jwt.verifyHs256` and opaque `authorizeOk`. Python `AuthConfig` also verifies RS256/ES256 via PyJWT (`[claims]`). Lean RS256/ES256 is `NuropbRMQTls` OpenSSL FFI. |
+| Pattern ACL | **Aligned** | Prefix + scoped `matchesRegex`; live prefix and narrower-regex 403. |
 | Config SpeC++ | **Aligned** | Unchanged. |
-| Lean IO runtime | **Aligned** | `NuropbRMQ.connect` / `connectWith` + `Transport`; `expectMethod` queues `BASIC_DELIVER`. Coverage: `./scripts/smoke_lean_coverage.sh`. |
-| TLS material / SASL EXTERNAL | **Aligned** | Lean `selectSasl` prefers `EXTERNAL` when a client PEM pair or PKCS#12 bag is set; CI `lean-mtls` (plugin + CN mapping). Oracle TLS SM vector `sm_trace_tls.txt`. |
+| Lean IO runtime | **Aligned** | `connectAsync` / `connectWithAsync` + `AsyncByteTransport`; `Session.startAsync` **dial hook** (`defaultDial` / `NuropbRMQTls.defaultDial`). Python has no dial callback — TLS is `ConnectionConfig.tls` inside `AmqpConnection.connect`. |
+| TLS material / SASL EXTERNAL | **Aligned** | Both prefer `EXTERNAL` when a client cert is present and the broker offers it. Python uses stdlib `ssl` + `asyncio.open_connection`; Lean uses UV-loop memory BIO / `WANT_*`. |
+| 1.0 freeze | **Aligned** | `api.py` `__all__` matches `tests/test_api_surface.py`. Only additive internal API: `RpcServer(dedup_window=0)`. |
 
 Residuals (documented, not silent): HMAC/SHA256 **hardness**; full RabbitMQ regex engine / HA; park exactly-once *delivery* / clustered dedup.
+
+### Python 1.0 review — bugs vs Lean-only IO
+
+| Kind | Finding |
+|---|---|
+| **Quality (Python)** | `AmqpConnection.close` does AMQP close-ok then tears down the reader/writer; it does **not** call `_fail_waiters` / `ConfirmTracker.fail_all`. `Session.close` still `discard_all`s RPC futures first. Raw `receive()` / confirm waiters on a bare connection can sit until timeout. |
+| **Quality (Python)** | `_notify_loss` enqueues one `_LOSS_SENTINEL` per queue — a second blocked `receive()` / `receive_return()` waiter is not woken. Session uses one reply loop. |
+| **Quality (Python)** | `basic_publish(confirm=True, drain=False)` waits for the confirm without flushing. `RpcServer` uses `drain=False` with `confirm=False` then `basic_ack` (one drain). Do not combine confirm + no-drain. |
+| **Quality (Python)** | Failed `connect()` after `on_tcp_connected` leaves the SM out of `INIT`; retry the same object. `Session.reconnect` allocates a fresh `AmqpConnection`. |
+| **Lean-only IO** | Dial hook, `requestAll`, confirm overlapped with reply wait, write-combine flush, UV BIO TLS. Do not port these into Python 1.0. |
+| **Lean drift** | `MeshService.announce` is stored but `start` does not publish a registry advertisement (Python `announce=True` does). |
+| **Lean drift** | Lean `waitReply` defaults to a 60s client timer; Python `broker_timeout=True` is broker TTL/DLX with no parallel client timer. |
+| **Docs (fixed)** | RS256/ES256 is not Lean-only: Python `AuthConfig.jwt_public_key` + PyJWT goldens. |
+| **Test residual** | `authorize_func` exception path is unit-tested; live mesh claims do not exercise authorize deny. mTLS live smoke does not assert negotiated `EXTERNAL` (unit `_select_sasl` does). `VERIFY_CUSTOM_SAN` is a pre-connect hostname allowlist, not cert-SAN inspection. |
 
 ## Modules
 
@@ -200,15 +215,17 @@ is frozen; Lean names mirror it and are not a Python API change.
 | Role | Artifact |
 |---|---|
 | Proofs + kernels | Lake target `NuropbRMQSpec` (`import NuropbRmq.*`, no `IO`) |
-| Lean AMQP/mesh client | Lake package / `import NuropbRMQ` (POSIX sockets; imports kernels) |
-| Optional AMQPS | `NuropbRMQTls.connect` (OpenSSL tls-verify-full PEM or PKCS#12 + mTLS `EXTERNAL`; not `default_target`). |
+| Lean AMQP/mesh client | Lake package / `import NuropbRMQ` (`Std.Async.TCP` / libuv; imports kernels) |
+| Optional AMQPS | `NuropbRMQTls.connectAsync` (OpenSSL tls-verify-full PEM or PKCS#12 + mTLS `EXTERNAL`; UV-loop memory BIO / `WANT_*`, not `default_target`). |
 | Python 1.0 | `nuropb_rmq` / PyPI `nuropb-rmq` (asyncio; no Lean FFI in the wheel) |
 
 | Lean client | Python 1.0 |
 |---|---|
-| `NuropbRMQ.connect` / `connectWith` / `Transport` | `AmqpConnection` (PLAIN; TLS is a separate byte pipe) |
-| `NuropbRMQ.Tls.connect` | `AmqpConnection` AMQPS `tls-verify-full` (PEM CA + optional client PEM or PKCS#12 / `EXTERNAL`) |
-| `NuropbRMQ.Session` | `Session` |
+| `NuropbRMQ.connect` / `connectAsync` / `connectWithAsync` / `AsyncByteTransport` | `AmqpConnection` (`asyncio.open_connection`; Lean APIs are `Async`) |
+| `encodeBurst` / `sendBurstAsync` (one `aio.send`) | `_write_frame` into the asyncio buffer + one `_drain()` |
+| `NuropbRMQTls.connectAsync` + `Session.startAsync` dial hook | `AmqpConnection.connect` when `ConnectionConfig.tls` (stdlib `ssl`; PEM / PKCS#12 / secrets hook / `EXTERNAL`) |
+| `NuropbRMQ.RpcClient.request` / `requestAsync` / `requestAll` | `RpcClient.request` (confirm then reply; many in-flight via asyncio tasks, no `requestAll`) |
+| `NuropbRMQ.Session.startAsync` | `Session.start` |
 | `NuropbRMQ.RpcClient` / `RpcServer` | `RpcClient` / `RpcServer` |
 | `NuropbRMQ.MeshService` / `ServiceIdentity` | `MeshService` / `ServiceIdentity` |
 | `NuropbRMQ.EventPublisher` / `EventSubscriber` | `EventPublisher` / `EventSubscriber` |
@@ -216,7 +233,7 @@ is frozen; Lean names mirror it and are not a Python API change.
 | `NuropbRMQ.DlqTimeoutProcessor` | `DlqTimeoutProcessor` |
 | `NuropbRmq.Protocol.tryStep` / `legalSend` | Python connection/channel SMs |
 | `NuropbRmq.Pattern.Mesh.tryBind` | `MeshService.assert_bind_allowed` |
-| `NuropbRmq.Pattern.Jwt.verifyHs256` | `AuthConfig.verify_request` (HS256) |
+| `NuropbRmq.Pattern.Jwt.verifyHs256` | `AuthConfig.verify_request` (HS256; RS256/ES256 via PyJWT) |
 
 Interop suites (shared `nr.interop.*` keys so they do not clash with
 `one_client_one_service`): `examples/interop_hello/`, `examples/interop_mesh/`,

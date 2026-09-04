@@ -3,12 +3,14 @@ Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 
+import Std.Async
 import NuropbRmq.Pattern.Envelope
 import NuropbRMQ.Connection
 import NuropbRMQ.Socket
 
 namespace NuropbRMQ
 
+open Std.Async
 open NuropbRmq.Pattern.Envelope
 
 def DEFAULT_REGISTRY_EXCHANGE : String := "nr.mesh.registry"
@@ -58,9 +60,9 @@ def ServiceAdvertisement.fromWire (body : ByteArray) : Option ServiceAdvertiseme
       | _, _, _, _ => none
 
 def MeshRegistryPublisher.announce (c : AmqpConnection) (channelId : Nat)
-    (advert : ServiceAdvertisement) (exchange : String := DEFAULT_REGISTRY_EXCHANGE) : IO Unit := do
+    (advert : ServiceAdvertisement) (exchange : String := DEFAULT_REGISTRY_EXCHANGE) : Async Unit := do
   exchangeDeclare c channelId exchange "fanout" (durable := true)
-  basicPublish c channelId advert.toWire exchange "" { contentType := some "application/json" }
+  basicPublishAsync c channelId advert.toWire exchange "" { contentType := some "application/json" }
 
 structure MeshRegistryViewer where
   conn : AmqpConnection
@@ -68,31 +70,34 @@ structure MeshRegistryViewer where
   channelId : Nat := 1
 
 def MeshRegistryViewer.start (cfg : ConnectionConfig)
-    (exchange : String := DEFAULT_REGISTRY_EXCHANGE) : IO MeshRegistryViewer := do
-  let c ← connect cfg
+    (exchange : String := DEFAULT_REGISTRY_EXCHANGE)
+    (dial : ConnectionConfig → Async AmqpConnection := defaultDial) : Async MeshRegistryViewer := do
+  let c ← dial cfg
   let _ ← openChannel c 1
   exchangeDeclare c 1 exchange "fanout" (durable := true)
   let q ← queueDeclare c 1 "" (exclusive := true) (autoDelete := true)
   queueBind c 1 q exchange ""
   let _ ← basicConsume c 1 q
-  return { conn := c, store := ← IO.mkRef [] }
+  return { conn := c, store := ← ioRun (IO.mkRef []) }
 
-def MeshRegistryViewer.close (v : MeshRegistryViewer) : IO Unit :=
+def MeshRegistryViewer.close (v : MeshRegistryViewer) : Async Unit :=
   NuropbRMQ.close v.conn
 
-def MeshRegistryViewer.pump (v : MeshRegistryViewer) : IO Unit := do
+def MeshRegistryViewer.pump (v : MeshRegistryViewer) : Async Unit := do
   try
-    let msg ← receive v.conn 100
-    basicAck v.conn v.channelId msg.deliveryTag
+    let msg ← receiveAsync v.conn 100
+    basicAckAsync v.conn v.channelId msg.deliveryTag
     if let some a := ServiceAdvertisement.fromWire msg.body then
-      v.store.modify fun xs => a :: xs.filter (fun x => x.service != a.service)
+      ioRun (v.store.modify fun xs => a :: xs.filter (fun x => x.service != a.service))
   catch _ => pure ()
 
-def MeshRegistryViewer.lookup (v : MeshRegistryViewer) (service : String) : IO (Option ServiceAdvertisement) := do
+def MeshRegistryViewer.lookup (v : MeshRegistryViewer) (service : String) :
+    Async (Option ServiceAdvertisement) := do
   MeshRegistryViewer.pump v
-  let now := (← IO.monoMsNow) / 1000
-  let xs := (← v.store.get).filter (fun a => a.publishedAt + a.ttlS > now)
-  v.store.set xs
+  let now := (← ioRun IO.monoMsNow) / 1000
+  let xs := (← ioRun (v.store.get : IO (List ServiceAdvertisement))).filter
+    (fun a => a.publishedAt + a.ttlS > now)
+  ioRun (v.store.set xs)
   return xs.find? (fun a => a.service == service)
 
 end NuropbRMQ

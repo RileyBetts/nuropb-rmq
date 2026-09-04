@@ -28,9 +28,9 @@ RPC/event mesh on RabbitMQ, not a Celery replacement.
 |---|---|---|
 | Package | PyPI **`nuropb-rmq`** | Lake / Reservoir **`NuropbRMQ`** (repo root) |
 | Import | `import nuropb_rmq` / `from nuropb_rmq import …` | `import NuropbRMQ` |
-| Runtime | asyncio, no `pika` | POSIX sockets (`lake build NuropbRMQ`) |
+| Runtime | asyncio, no `pika` | `Std.Async.TCP` / libuv (`lake build NuropbRMQ`) |
 | Proofs | consumes the same kernels via tests | `lake build NuropbRMQSpec` (`import NuropbRmq.*`, no IO) |
-| TLS | `tls-verify-full`; mTLS / `EXTERNAL`; PEM + PKCS#12 | default build is libc; AMQPS / mTLS / RS256/ES256 on `NuropbRMQTls` |
+| TLS | `tls-verify-full`; mTLS / `EXTERNAL`; PEM + PKCS#12 | default build is libc; AMQPS / mTLS / Lean RS256/ES256 on `NuropbRMQTls` |
 | Freeze | 1.0 public names in [`api.py`](src/nuropb_rmq/api.py) | second runtime; not a Python 1.x bump |
 
 They interoperate on the broker: Lean publisher ↔ Python consumer, Lean mesh
@@ -44,8 +44,8 @@ Shared mesh behaviour (both packages unless noted):
 - Session RPC with exclusive reply queues and correlation tracking
 - Event pub/sub (JSON-RPC notification shape) over topic/fanout
 - Mesh service bind under a namespaced identity (`service.method`)
-- Optional JWT claims on RPC (Python `[claims]` extra; Lean HS256 in-tree,
-  RS256/ES256 on `NuropbRMQTls`)
+- Optional JWT claims on RPC (Python `[claims]` extra: HS256 + RS256/ES256 via
+  PyJWT; Lean HS256 in-tree, RS256/ES256 on `NuropbRMQTls`)
 - TLS (`tls-verify-full`), mTLS / SASL `EXTERNAL`, PEM + PKCS#12
 - Named queue profiles (`durable-at-least-once` default) and heartbeat watchdog
 - Park-and-retry reconnect (default); fail-fast via `fail_outstanding=True`
@@ -98,11 +98,13 @@ require NuropbRMQ from git "https://github.com/RileyBetts/nuropb-rmq" @ "<tag>"
 ```bash
 # from this repo root — not cd specs/lean
 lake build NuropbRMQSpec   # kernels + proofs (no sockets)
-lake build NuropbRMQ       # POSIX AMQP / mesh client
+lake build NuropbRMQ       # Std.Async AMQP / mesh client (libuv; no OpenSSL)
 lake build NuropbRMQTls    # optional OpenSSL AMQPS / mTLS / RS+ES JWT
 ```
 
-Then `import NuropbRMQ`. Default `lake build` does not link OpenSSL.
+Then `import NuropbRMQ`. Default `lake build` links libuv via `Std.Async` and
+does not link OpenSSL. Async model:
+[`docs/reference/lean-async-io.md`](docs/reference/lean-async-io.md).
 Details: [`specs/lean/README.md`](specs/lean/README.md).
 
 ## Quick start
@@ -141,16 +143,21 @@ Stable imports: `from nuropb_rmq import Session, RpcClient, MeshService, …`
 ### Lean
 
 ```lean
+import Std.Async
 import NuropbRMQ
 
-def main : IO Unit := do
-  let c ← NuropbRMQ.connect {}
-  let _ ← NuropbRMQ.openChannel c 1
-  let q ← NuropbRMQ.queueDeclare c 1 "nr.ex.hello" (durable := true)
-  NuropbRMQ.basicPublish c 1 "hello-nuropb-rmq".toUTF8 "" q
+open Std.Async
+open NuropbRMQ
+
+def main : IO Unit := (do
+  let c ← connect {}
+  let _ ← openChannel c 1
+  let q ← queueDeclare c 1 "nr.ex.hello" (durable := true)
+  basicPublish c 1 "hello-nuropb-rmq".toUTF8 "" q
     { deliveryMode := some 2, contentType := some "text/plain" }
     (wantConfirm := true)
-  NuropbRMQ.close c
+  close c
+  : Async Unit).block
 ```
 
 `connect {}` uses `127.0.0.1:5672` / `guest`. For `NUROPB_RMQ_*`, pass
@@ -171,6 +178,8 @@ def main : IO Unit := do
 - [`examples/LeanMesh/`](examples/LeanMesh/) — mesh service + client
 - [`examples/LeanClaims/`](examples/LeanClaims/) — HS256 + `authorize` deny/allow
 - Coverage smokes (events, DLQ, park reconnect, dedup): `./scripts/smoke_lean_coverage.sh`
+- Async TCP (no broker) + RPC overlap: `lake exe lean_async_tcp_smoke`,
+  `./scripts/smoke_lean_rpc_overlap.sh`
 
 **Interop** (Lean ↔ Python on one broker)
 
@@ -196,6 +205,7 @@ core packages)
 User guides (config, AMQPS, mesh, claims): **[`docs/`](docs/README.md)**.
 What's next vs residual: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+- [Lean async IO](docs/reference/lean-async-io.md) — `Std.Async.TCP`, waiters, UV-loop TLS
 - [Architecture overview](docs/concepts/architecture-overview.md) — two runtimes
 - [Service mesh](docs/concepts/service-mesh.md)
 - [JWT claims](docs/concepts/jwt-claims.md)

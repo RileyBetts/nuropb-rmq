@@ -3,10 +3,12 @@ Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 
+import Std.Async
 import Common
 import NuropbRMQ
 import NuropbRmq.Pattern.Envelope
 
+open Std.Async
 open NuropbRmq.Pattern.Envelope
 open NuropbRMQ
 
@@ -25,22 +27,22 @@ def authorize (_claims method : String) (params : Json) : IO Bool := do
     | _ => return true
   | _ => return true
 
-partial def serveLoop (srv : RpcServer) : IO Unit := do
+partial def serveLoop (srv : RpcServer) : Async Unit := do
   try
     let msg ← receive srv.conn 60000
     RpcServer.serveOnce srv msg
   catch e =>
-    IO.eprintln s!"[claims-service] {e}"
+    liftM (IO.eprintln s!"[claims-service] {e}")
   serveLoop srv
 
-def main : IO Unit := do
-  let cfg ← Examples.Common.cfg
-  let mesh ← mkMeshService cfg { service := "orders" } ["ping"]
+def main : IO Unit := Examples.Common.runAsync do
+  let cfg ← liftM Examples.Common.cfg
+  let mesh ← liftM (mkMeshService cfg { service := "orders" } ["ping"])
   let q ← MeshService.start mesh
-  let conn ← MeshService.connection mesh
+  let conn ← liftM (MeshService.connection mesh)
   let _ ← basicConsume conn 1 q
-  IO.println "[claims-service] listening identity='orders' auth=HS256 (Ctrl-C to stop)"
-  (← IO.getStdout).flush
+  liftM (IO.println "[claims-service] listening identity='orders' auth=HS256 (Ctrl-C to stop)")
+  liftM ((← IO.getStdout).flush)
   serveLoop {
     conn, queue := q, handler := handle
     auth := some { jwtSecret := "test-secret", authorize := some authorize }

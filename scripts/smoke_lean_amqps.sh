@@ -28,9 +28,15 @@ lake build NuropbRMQTls lean_amqps_hello
 
 export NUROPB_RMQ_TLS=1
 export NUROPB_RMQ_HOST="${NUROPB_RMQ_HOST:-127.0.0.1}"
-export NUROPB_RMQ_PORT="${NUROPB_RMQ_PORT:-5671}"
+# Do not inherit a PLAIN leftover (`NUROPB_RMQ_PORT=5672` → wrong version number).
+export NUROPB_RMQ_PORT="${NUROPB_RMQ_AMQPS_PORT:-5671}"
 export NUROPB_RMQ_CA_FILE="${NUROPB_RMQ_CA_FILE:-$ROOT/dev/amqps/ca.pem}"
 export NUROPB_RMQ_SERVER_HOSTNAME="${NUROPB_RMQ_SERVER_HOSTNAME:-localhost}"
+# mTLS broker on 5671 requires a client cert; PLAIN-over-TLS does not.
+if docker ps --format '{{.Names}}' | grep -qx rmq-amqps-mtls; then
+  export NUROPB_RMQ_CERT_FILE="${NUROPB_RMQ_CERT_FILE:-$ROOT/dev/amqps/client.pem}"
+  export NUROPB_RMQ_KEY_FILE="${NUROPB_RMQ_KEY_FILE:-$ROOT/dev/amqps/client.key}"
+fi
 
 out="$("$ROOT/.lake/build/bin/lean_amqps_hello")"
 echo "$out"
