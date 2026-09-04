@@ -35,6 +35,7 @@ correspondence for contributors is in [`specs/lean/CORRESPONDENCE.md`](../specs/
 - [ConnectionConfig fields](reference/connection-config.md)
 - [Environment variables](reference/env-vars.md) — `NUROPB_RMQ_*` in examples/tests
 - [Testing regime](reference/testing-regime.md) — proof and test layers, attack surfaces
+- [Roadmap](ROADMAP.md) — done on `development`, next Lean IO, residuals
 
 ## Examples
 
@@ -58,4 +59,5 @@ suites need `uv sync` in their example directories first. They stay Python-only.
 
 - [Root README](../README.md) — install and quick start
 - [CHANGELOG](../CHANGELOG.md)
+- [Roadmap](ROADMAP.md)
 - [CONTRIBUTING](../CONTRIBUTING.md)

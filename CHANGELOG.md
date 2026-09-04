@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Lean POSIX AMQP/mesh client (`import NuropbRMQ`) on the same kernels as the
+  frozen Python 1.0 API. Default `lake build` is libc only (no OpenSSL)
+- Optional AMQPS via `NuropbRMQTls.connect` / `Transport` (`tls-verify-full` PEM)
+- Lean ↔ Python interop, Lean AMQPS, and Lean IO coverage smokes
+  (`scripts/smoke_interop.sh`, `smoke_lean_amqps.sh`, `smoke_lean_coverage.sh`)
+- CI jobs: `lean`, `lean-interop` (includes coverage), `lean-amqps`
+- Proof hygiene: channel `allowsOps`, `Reachable` witnesses, `wellFormedPark`,
+  `Ids.validId`, TLS oracle vector; field decode of DLQ `x-death` arrays
+- Python unit holes: `ConnectionBlockedError` inject, `NackDelivery`,
+  `MeshRegistryPublisher` via `api`, AMQPS wrong-hostname
+- Project roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+
+### Honesty
+
+- Park republish remains at-least-once (not exactly-once)
+- Default `lake build` does not link OpenSSL; PKCS#12 / mTLS / SASL `EXTERNAL`
+  in Lean stay residual
+- Lean `authorize_func`, RS256/ES256, HMAC hardness, and RabbitMQ regex ACL
+  stay residual
+
 ## 1.0.0 — 2026-09-01
 
 ### Added
