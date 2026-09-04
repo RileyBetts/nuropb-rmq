@@ -7,6 +7,7 @@ import NuropbRmq.Pattern.Envelope
 import NuropbRmq.Pattern.Errors
 import NuropbRmq.Pattern.Claims
 import NuropbRmq.Pattern.Jwt
+import NuropbRmq.Session.Dedup
 import NuropbRMQ.Session
 
 namespace NuropbRMQ
@@ -80,47 +81,78 @@ def AuthConfig.applyAuthorize (a : AuthConfig) (method : String) (params : Json)
     catch _ =>
       return false
 
-structure RpcServer where
-  conn : AmqpConnection
-  queue : String
-  channelId : Nat := 1
-  auth : Option AuthConfig := none
-  handler : String → Json → IO Json
+structure DedupState where
+  cap : Nat
+  seen : List String := []
+  cache : List (String × Json) := []
 
-def RpcServer.serveOnce (srv : RpcServer) (msg : IncomingMessage) : IO Unit := do
-  let replyTo := msg.properties.replyTo
+def DedupState.lookup (st : DedupState) (rid : String) : Option Json :=
+  (st.cache.find? (fun p => p.1 == rid)).map (·.2)
+
+def DedupState.store (st : DedupState) (rid : String) (result : Json) : DedupState :=
+  let (_, seen') := NuropbRmq.Session.tryDedup st.seen st.cap rid
+  { st with
+    seen := seen'
+    cache := (rid, result) :: st.cache |>.filter (fun p => seen'.contains p.1) }
+
+/-- Decode + auth + optional dedup. No broker I/O (used by serveOnce and the smoke). -/
+def handleRpc
+    (handler : String → Json → IO Json)
+    (auth : Option AuthConfig)
+    (dedup : Option (IO.Ref DedupState))
+    (msg : IncomingMessage) : IO ByteArray := do
   let corr := msg.properties.correlationId
-  let mut out : ByteArray := ByteArray.empty
   try
     match decodeRequest msg.body with
     | .error _ =>
-      out := encodeError INVALID_ENVELOPE "invalid JSON-RPC body" corr (.obj [])
+      return encodeError INVALID_ENVELOPE "invalid JSON-RPC body" corr (.obj [])
     | .ok (method, params, bodyId) =>
       let rid := corr.getD bodyId
-      if let some a := srv.auth then
+      let runHandler : IO ByteArray := do
+        match dedup with
+        | some ref =>
+          let st ← ref.get
+          match st.lookup rid with
+          | some cached =>
+            return encodeResult cached rid
+          | none =>
+            let result ← handler method params
+            ref.set (st.store rid result)
+            return encodeResult result rid
+        | none =>
+          let result ← handler method params
+          return encodeResult result rid
+      if let some a := auth then
         let now := (← IO.monoMsNow) / 1000
         let token := AuthConfig.claimsToken msg.properties
         let unauthorized := encodeError UNAUTHORIZED "unauthorized" (some rid) (.obj [
           ("code_name", .str "UNAUTHORIZED"), ("retryable", .bool false)
         ])
         match AuthConfig.verify a method rid msg.properties now with
-        | .authPublicSkip =>
-          let result ← srv.handler method params
-          out := encodeResult result rid
+        | .authPublicSkip => runHandler
         | .authOk =>
           if (← AuthConfig.applyAuthorize a method params token) then
-            let result ← srv.handler method params
-            out := encodeResult result rid
+            runHandler
           else
-            out := unauthorized
-        | .authReject =>
-          out := unauthorized
+            return unauthorized
+        | .authReject => return unauthorized
       else
-        let result ← srv.handler method params
-        out := encodeResult result rid
-  catch e =>
-    out := encodeError SERVER_ERROR "internal error" corr (.obj [("code_name", .str "SERVER_ERROR")])
-    let _ := e
+        runHandler
+  catch _ =>
+    return encodeError SERVER_ERROR "internal error" corr (.obj [("code_name", .str "SERVER_ERROR")])
+
+structure RpcServer where
+  conn : AmqpConnection
+  queue : String
+  channelId : Nat := 1
+  auth : Option AuthConfig := none
+  handler : String → Json → IO Json
+  dedup : Option (IO.Ref DedupState) := none
+
+def RpcServer.serveOnce (srv : RpcServer) (msg : IncomingMessage) : IO Unit := do
+  let replyTo := msg.properties.replyTo
+  let corr := msg.properties.correlationId
+  let out ← handleRpc srv.handler srv.auth srv.dedup msg
   if let some rt := replyTo then
     if rt ≠ "" then
       let props : BasicProperties := {

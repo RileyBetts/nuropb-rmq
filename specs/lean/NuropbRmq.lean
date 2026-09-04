@@ -22,6 +22,7 @@ import NuropbRmq.Session.Correlation
 import NuropbRmq.Session.Invariants
 import NuropbRmq.Session.DeadLetterTimeout
 import NuropbRmq.Session.Reconnect
+import NuropbRmq.Session.Dedup
 import NuropbRmq.Session.Phase2Invariants
 import NuropbRmq.Pattern.Mesh
 import NuropbRmq.Pattern.Claims

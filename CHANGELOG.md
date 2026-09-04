@@ -22,6 +22,9 @@ All notable changes to this project are documented in this file.
   default `lake build` stays libc / HS256)
 - Scoped `matchesRegex` (Lean + Python) for documented ACL profiles as regex,
   plus a live narrower-than-prefix regex 403; full broker engine stays residual
+- Optional `RpcServer(dedup_window=N)` / Lean `tryDedup`: process-local
+  request-id cache so a park republish does not run the handler twice
+  (success only; delivery stays at-least-once)
 - Lean `authorize_func`: opaque `authorizeOk` on `tryAuth`, optional RPC hook
   after HS256 (`claims → method → params → Bool`); deny/allow in Lean claims smoke
 - Proof hygiene: channel `allowsOps`, `Reachable` witnesses, `wellFormedPark`,
@@ -32,7 +35,8 @@ All notable changes to this project are documented in this file.
 
 ### Honesty
 
-- Park republish remains at-least-once (not exactly-once)
+- Park republish remains at-least-once *delivery* (optional `dedup_window` is
+  in-process handler-once, not clustered / exactly-once AMQP)
 - Default `lake build` does not link OpenSSL (PKCS#12 / mTLS / RS256/ES256 stay
   on `NuropbRMQTls` only)
 - HMAC hardness and the full RabbitMQ regex engine / HA stay residual

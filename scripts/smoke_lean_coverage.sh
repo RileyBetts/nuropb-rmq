@@ -14,7 +14,8 @@ BIN="$ROOT/.lake/build/bin"
 lake build lean_hello_publisher lean_hello_consumer \
   lean_mesh_service lean_mesh_client \
   lean_claims_service lean_claims_client \
-  lean_events_hello lean_dlq_hello lean_reconnect_client >/dev/null
+  lean_events_hello lean_dlq_hello lean_reconnect_client \
+  lean_dedup_hello >/dev/null
 
 assert_contains() {
   local label="$1" haystack="$2" needle="$3"
@@ -46,6 +47,10 @@ assert_contains "lean_hello pub" "$pout" "hello-nuropb-rmq"
 assert_contains "lean_hello cons" "$(cat "$clog")" "hello-nuropb-rmq"
 rm -f "$clog"
 echo "PASS lean_hello"
+
+dout_dedup="$("$BIN/lean_dedup_hello" 2>&1)"
+assert_contains "lean_dedup" "$dout_dedup" "dedup: ok"
+echo "PASS lean_dedup"
 
 slog="$(mktemp)"
 "$BIN/lean_mesh_service" >"$slog" 2>&1 &

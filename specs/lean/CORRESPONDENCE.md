@@ -21,7 +21,7 @@ client Transport split and coverage smokes.
 | Lean IO runtime | **Aligned** | `NuropbRMQ.connect` / `connectWith` + `Transport`; `expectMethod` queues `BASIC_DELIVER`. Coverage: `./scripts/smoke_lean_coverage.sh`. |
 | TLS material / SASL EXTERNAL | **Aligned** | Lean `selectSasl` prefers `EXTERNAL` when a client PEM pair or PKCS#12 bag is set; CI `lean-mtls` (plugin + CN mapping). Oracle TLS SM vector `sm_trace_tls.txt`. |
 
-Residuals (documented, not silent): HMAC/SHA256 **hardness**; full RabbitMQ regex engine / HA; park **exactly-once** server execution.
+Residuals (documented, not silent): HMAC/SHA256 **hardness**; full RabbitMQ regex engine / HA; park exactly-once *delivery* / clustered dedup.
 
 ## Modules
 
@@ -178,6 +178,7 @@ Python also refuses empty method / `..` segments beyond the SpeC++ prefix core.
 | `onDisconnect` fail-fast clears pending | `Session` `fail_outstanding=True` |
 | `onDisconnectPark` keeps pending | default park; `remember_publish` / republish |
 | `onReconnect` bumps epoch, keeps parked count | `Session.reconnect` / `ReconnectCoordinator` |
+| `tryDedup` / `DedupOutcome` | `try_dedup` + `RpcServer(dedup_window=N)` success cache |
 | `MeshService.rebind` | Fresh connection + namespaced binds; caller restarts `RpcServer` |
 | `specs/specpp/Session/phase2_reconnect.smt2` | `tests/session/test_reconnect.py` + integration |
 
