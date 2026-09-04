@@ -10,6 +10,9 @@
 #include <openssl/pkcs12.h>
 #include <openssl/provider.h>
 #include <openssl/x509.h>
+#include <openssl/evp.h>
+#include <openssl/ecdsa.h>
+#include <openssl/bn.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -253,4 +256,106 @@ LEAN_EXPORT lean_obj_res nuropb_tls_close(uint64_t handle, lean_obj_arg w) {
     free(sess);
   }
   return lean_io_result_mk_ok(lean_box(0));
+}
+
+static char *dup_lean_string(b_lean_obj_arg s) {
+  size_t n = lean_string_size(s);
+  char *p = (char *)malloc(n == 0 ? 1 : n);
+  if (!p) return NULL;
+  if (n == 0) {
+    p[0] = '\0';
+    return p;
+  }
+  memcpy(p, lean_string_cstr(s), n);
+  return p;
+}
+
+static int ecdsa_p1363_to_der(const unsigned char *raw, size_t rawlen,
+                              unsigned char **out, size_t *outlen) {
+  if (rawlen == 0 || (rawlen % 2) != 0) return 0;
+  size_t half = rawlen / 2;
+  ECDSA_SIG *esig = ECDSA_SIG_new();
+  if (!esig) return 0;
+  BIGNUM *r = BN_bin2bn(raw, (int)half, NULL);
+  BIGNUM *s = BN_bin2bn(raw + half, (int)half, NULL);
+  if (!r || !s || ECDSA_SIG_set0(esig, r, s) != 1) {
+    BN_free(r);
+    BN_free(s);
+    ECDSA_SIG_free(esig);
+    return 0;
+  }
+  int len = i2d_ECDSA_SIG(esig, NULL);
+  if (len <= 0) {
+    ECDSA_SIG_free(esig);
+    return 0;
+  }
+  *out = (unsigned char *)malloc((size_t)len);
+  if (!*out) {
+    ECDSA_SIG_free(esig);
+    return 0;
+  }
+  unsigned char *p = *out;
+  i2d_ECDSA_SIG(esig, &p);
+  *outlen = (size_t)len;
+  ECDSA_SIG_free(esig);
+  return 1;
+}
+
+/* RS256 / ES256 JWS verify. Returns IO Bool (false = fail-closed). */
+LEAN_EXPORT lean_obj_res nuropb_jwt_verify_asymmetric(
+    b_lean_obj_arg alg,
+    b_lean_obj_arg pem_pub,
+    b_lean_obj_arg signing,
+    b_lean_obj_arg sig,
+    lean_obj_arg w) {
+  (void)w;
+  ensure_ssl();
+  char *alg_s = dup_lean_string(alg);
+  char *pem = dup_lean_string(pem_pub);
+  char *msg = dup_lean_string(signing);
+  if (!alg_s || !pem || !msg) {
+    free(alg_s);
+    free(pem);
+    free(msg);
+    return io_error("oom");
+  }
+  size_t msg_len = strlen(msg);
+  size_t sig_len = lean_sarray_size(sig);
+  const unsigned char *sig_raw = lean_sarray_cptr(sig);
+  int ok = 0;
+  if (pem[0] == '\0' || msg_len == 0 || sig_len == 0) {
+    goto done;
+  }
+  BIO *bio = BIO_new_mem_buf(pem, -1);
+  if (!bio) goto done;
+  EVP_PKEY *pkey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
+  BIO_free(bio);
+  if (!pkey) goto done;
+  const unsigned char *use_sig = sig_raw;
+  unsigned char *der = NULL;
+  size_t use_len = sig_len;
+  if (strcmp(alg_s, "ES256") == 0) {
+    if (!ecdsa_p1363_to_der(sig_raw, sig_len, &der, &use_len)) {
+      EVP_PKEY_free(pkey);
+      goto done;
+    }
+    use_sig = der;
+  } else if (strcmp(alg_s, "RS256") != 0) {
+    EVP_PKEY_free(pkey);
+    goto done;
+  }
+  EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+  if (ctx &&
+      EVP_DigestVerifyInit(ctx, NULL, EVP_sha256(), NULL, pkey) == 1 &&
+      EVP_DigestVerify(ctx, use_sig, use_len, (const unsigned char *)msg, msg_len) == 1) {
+    ok = 1;
+  }
+  if (ctx) EVP_MD_CTX_free(ctx);
+  EVP_PKEY_free(pkey);
+  free(der);
+done:
+  free(alg_s);
+  free(pem);
+  free(msg);
+  return lean_io_result_mk_ok(lean_box(ok ? 1 : 0));
 }

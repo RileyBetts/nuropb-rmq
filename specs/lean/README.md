@@ -32,5 +32,6 @@ require NuropbRMQ from git "https://github.com/RileyBetts/nuropb-rmq" @ "<tag>"
 
 then `import NuropbRMQ`. Optional AMQPS is `import NuropbRMQTls` /
 `NuropbRMQTls.connect` (`lake build NuropbRMQTls`; OpenSSL; not a default
-target). mTLS PEM or PKCS#12 + SASL `EXTERNAL` is supported on that target.
+target). mTLS PEM or PKCS#12 + SASL `EXTERNAL`, and RS256/ES256 JWT verify,
+are supported on that target.
 The Python wheel stays `nuropb_rmq` and does not embed Lean FFI.

@@ -138,6 +138,8 @@ jobs:
           lint: false
       - name: Install OpenSSL headers
         run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Lean RS256/ES256 JWT verify
+        run: ./scripts/smoke_lean_jwt_asymmetric.sh
       - name: Generate AMQPS certs
         run: ./scripts/gen_amqps_certs.sh
       - name: Start RabbitMQ with TLS

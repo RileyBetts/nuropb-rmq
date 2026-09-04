@@ -128,6 +128,18 @@ lean_exe lean_amqps_hello where
     "-lssl", "-lcrypto"
   ]
 
+/-- RS256/ES256 JWT verify smoke (OpenSSL). Not a default target. -/
+lean_exe lean_jwt_asymmetric where
+  srcDir := "examples"
+  root := `LeanJwtAsym.Hello
+  moreLinkArgs := #[
+    "-L/opt/homebrew/opt/openssl@3/lib",
+    "-L/opt/homebrew/opt/openssl/lib",
+    "-L/usr/local/opt/openssl@3/lib",
+    "-L/usr/local/opt/openssl/lib",
+    "-lssl", "-lcrypto"
+  ]
+
 /-- mTLS + SASL EXTERNAL smoke. Not a default target. -/
 lean_exe lean_amqps_mtls where
   srcDir := "examples"
