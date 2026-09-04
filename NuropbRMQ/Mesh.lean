@@ -62,6 +62,7 @@ def MeshService.start (m : MeshService) : IO String := do
   exchangeDeclare c m.channelId m.exchange "direct" (durable := true)
   let q ← queueDeclareProfile c m.channelId m.queueName (durable := true)
     (dlx := some s!"nr.dlx.{m.identity.service}") (ttlMs := some 60000)
+    (queueType := "quorum") (dlrk := some "timeout") (deliveryLimit := some 10)
   for meth in m.methods do
     let key := m.identity.routingKey meth
     let _ ← MeshService.assertBindAllowed m key

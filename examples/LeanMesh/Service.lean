@@ -18,9 +18,12 @@ def handle (method : String) (params : Json) : IO Json := do
   return .obj [("ok", .bool true)]
 
 partial def serveLoop (srv : RpcServer) (events : EventPublisher) : IO Unit := do
-  let msg ← receive srv.conn 60000
-  RpcServer.serveOnce srv msg
-  EventPublisher.publish events "" "demo.request_handled" (.obj [])
+  try
+    let msg ← receive srv.conn 60000
+    RpcServer.serveOnce srv msg
+    EventPublisher.publish events "" "demo.request_handled" (.obj [])
+  catch e =>
+    IO.eprintln s!"[service] {e}"
   serveLoop srv events
 
 def main : IO Unit := do
@@ -28,7 +31,8 @@ def main : IO Unit := do
   let mesh ← mkMeshService cfg { service := "demo" } ["ping", "echo"]
   let q ← MeshService.start mesh
   let conn ← MeshService.connection mesh
+  let events ← EventPublisher.start cfg "nr.demo.events" "fanout"
   let _ ← basicConsume conn 1 q
   IO.println "[service] listening identity='demo' methods=['ping', 'echo'] mesh='nr.mesh' (Ctrl-C to stop)"
-  let events ← EventPublisher.start cfg "nr.demo.events" "fanout"
+  (← IO.getStdout).flush
   serveLoop { conn, queue := q, handler := handle } events

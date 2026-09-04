@@ -16,9 +16,12 @@ def handle (method : String) (params : Json) : IO Json := do
   return .obj [("ok", .bool true)]
 
 partial def serveLoop (srv : RpcServer) (events : EventPublisher) : IO Unit := do
-  let msg ← receive srv.conn 60000
-  RpcServer.serveOnce srv msg
-  EventPublisher.publish events "" "interop.request_handled" (.obj [])
+  try
+    let msg ← receive srv.conn 60000
+    RpcServer.serveOnce srv msg
+    EventPublisher.publish events "" "interop.request_handled" (.obj [])
+  catch e =>
+    IO.eprintln s!"[service] {e}"
   serveLoop srv events
 
 def main : IO Unit := do
@@ -26,8 +29,6 @@ def main : IO Unit := do
   let mesh ← mkMeshService cfg { service := Examples.Common.INTEROP_SERVICE } ["ping", "echo"]
   let q ← MeshService.start mesh
   let conn ← MeshService.connection mesh
-  let _ ← basicConsume conn 1 q
-  IO.println "[service] listening identity='interop' methods=['ping', 'echo'] mesh='nr.mesh' (Ctrl-C to stop)"
   let events ← EventPublisher.start cfg Examples.Common.INTEROP_EVENTS "fanout"
   let inst ← Socket.hexId
   MeshRegistryPublisher.announce conn 1 {
@@ -39,4 +40,7 @@ def main : IO Unit := do
     publishedAt := (← IO.monoMsNow) / 1000
     ttlS := 30
   }
+  let _ ← basicConsume conn 1 q
+  IO.println "[service] listening identity='interop' methods=['ping', 'echo'] mesh='nr.mesh' (Ctrl-C to stop)"
+  (← IO.getStdout).flush
   serveLoop { conn, queue := q, handler := handle } events

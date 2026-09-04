@@ -136,6 +136,8 @@ partial def expectMethod (st : IO.Ref ConnState) (ch classId methodId : Nat) : I
       else if m.classId == CONNECTION && m.methodId == CONNECTION_CLOSE then
         let _ ← sendMethod st 0 { classId := CONNECTION, methodId := CONNECTION_CLOSE_OK }
         throwIo s!"broker closed: {argStr m.args "reply_text"}"
+      else if m.classId == CHANNEL && m.methodId == CHANNEL_CLOSE then
+        throwIo s!"channel.close {argInt m.args "reply_code"} {argStr m.args "reply_text"}"
       else if fr.channel == ch && m.classId == classId && m.methodId == methodId then
         return m
       else
@@ -269,12 +271,19 @@ def queueBind (c : AmqpConnection) (channelId : Nat) (queue exchange routingKey 
   let _ ← expectMethod c.st channelId QUEUE QUEUE_BIND_OK
 
 def profileArgs (p : QueueProfile) (name : String) (dlx : Option String) (ttl : Option Nat)
-    (queueType : String := "classic") : Table :=
+    (queueType : String := "classic") (dlrk : Option String := none)
+    (deliveryLimit : Option Nat := none) : Table :=
   let t : Table := []
   let t := if queueType == "quorum" then t ++ [("x-queue-type", .longstr "quorum")] else t
   let t := match ttl with | some ms => t ++ [("x-message-ttl", .int ms)] | none => t
   let t := match dlx with
     | some x => t ++ [("x-dead-letter-exchange", .longstr x)]
+    | none => t
+  let t := match dlrk with
+    | some k => t ++ [("x-dead-letter-routing-key", .longstr k)]
+    | none => t
+  let t := match deliveryLimit with
+    | some n => t ++ [("x-delivery-limit", .int n)]
     | none => t
   let _ := (p, name)
   t
@@ -282,11 +291,14 @@ def profileArgs (p : QueueProfile) (name : String) (dlx : Option String) (ttl : 
 def queueDeclareProfile (c : AmqpConnection) (channelId : Nat) (queue : String)
     (durable : Bool := true) (exclusive autoDelete : Bool := false)
     (dlx : Option String := none) (ttlMs : Option Nat := none)
-    (queueType : String := "classic") : IO String := do
+    (queueType : String := "classic") (dlrk : Option String := none)
+    (deliveryLimit : Option Nat := none) : IO String := do
+  if queueType == "quorum" && (exclusive || autoDelete) then
+    throwIo "quorum queues cannot be exclusive or auto-delete"
   if let some x := dlx then
     exchangeDeclare c channelId x "topic" (durable := true)
   queueDeclare c channelId queue durable exclusive autoDelete
-    (profileArgs durableAtLeastOnce queue dlx ttlMs queueType)
+    (profileArgs durableAtLeastOnce queue dlx ttlMs queueType dlrk deliveryLimit)
 
 def basicPublish (c : AmqpConnection) (channelId : Nat) (body : ByteArray)
     (exchange routingKey : String := "") (props : BasicProperties := {})
@@ -358,8 +370,10 @@ partial def assembleContent (c : AmqpConnection) (channelId : Nat) : IO (BasicPr
 
 partial def receive (c : AmqpConnection) (timeoutMs : Nat := 30000) : IO IncomingMessage := do
   let s ← c.st.get
-  let ready ← Socket.poll s.fd timeoutMs.toUInt32
-  if !ready then throwIo "receive timeout"
+  -- Deliver may already be buffered (same TCP read as consume-ok / prior frame).
+  if s.buffer.isEmpty then
+    let ready ← Socket.poll s.fd timeoutMs.toUInt32
+    if !ready then throwIo "receive timeout"
   let fr ← readFrame c.st
   if fr.kind == .heartbeat then
     receive c timeoutMs

@@ -16,6 +16,10 @@ fi
 export NUROPB_RMQ_HOST="${NUROPB_RMQ_HOST:-127.0.0.1}"
 export NUROPB_RMQ_PORT="${NUROPB_RMQ_PORT:-5672}"
 
+BIN="$ROOT/.lake/build/bin"
+lake build interop_hello_publisher interop_hello_consumer \
+  interop_mesh_service interop_mesh_client >/dev/null
+
 assert_contains() {
   local label="$1" haystack="$2" needle="$3"
   if [[ "$haystack" != *"$needle"* ]]; then
@@ -40,7 +44,7 @@ log="$(mktemp)"
 "${PY[@]}" examples/interop_hello/consumer.py >"$log" 2>&1 &
 pid=$!
 sleep 1
-out="$(lake exe interop_hello_publisher 2>&1)"
+out="$("$BIN/interop_hello_publisher" 2>&1)"
 sleep 0.5
 kill_bg "$pid"
 assert_contains "interop_hello lean→py pub" "$out" "hello-nuropb-rmq"
@@ -50,9 +54,9 @@ echo "PASS interop_hello lean publisher / python consumer"
 
 # Lean consumer + Python publisher
 log="$(mktemp)"
-lake exe interop_hello_consumer >"$log" 2>&1 &
+"$BIN/interop_hello_consumer" >"$log" 2>&1 &
 pid=$!
-sleep 1
+sleep 2
 out="$("${PY[@]}" examples/interop_hello/publisher.py 2>&1)"
 sleep 1
 kill_bg "$pid"
@@ -66,7 +70,7 @@ slog="$(mktemp)"
 "${PY[@]}" examples/interop_mesh/service.py >"$slog" 2>&1 &
 pid=$!
 sleep 2
-clout="$(lake exe interop_mesh_client 2>&1)" || true
+clout="$("$BIN/interop_mesh_client" 2>&1)" || true
 sleep 0.3
 kill_bg "$pid"
 assert_contains "interop_mesh lean client" "$clout" "interop.ping"
@@ -76,9 +80,9 @@ echo "PASS interop_mesh python service / lean client"
 
 # Lean service + Python client
 slog="$(mktemp)"
-lake exe interop_mesh_service >"$slog" 2>&1 &
+"$BIN/interop_mesh_service" >"$slog" 2>&1 &
 pid=$!
-sleep 2
+sleep 3
 clout="$("${PY[@]}" examples/interop_mesh/client.py 2>&1)" || true
 sleep 0.3
 kill_bg "$pid"
