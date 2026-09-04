@@ -9,6 +9,7 @@ import time
 
 import pytest
 
+from nuropb_rmq.api import MeshRegistryPublisher
 from nuropb_rmq.patterns.errors import BIND_REFUSED, RpcError
 from nuropb_rmq.patterns.mesh import MeshService, ServiceIdentity
 from nuropb_rmq.patterns.registry import AdvertisementStore, ServiceAdvertisement
@@ -58,6 +59,22 @@ def test_wire_roundtrip() -> None:
     a = _advert(published_at=123.0, ttl_s=30.0)
     b = ServiceAdvertisement.from_wire(a.to_wire())
     assert b == a
+
+
+def test_api_mesh_registry_publisher_advert_wire() -> None:
+    pub = MeshRegistryPublisher(ttl_s=30.0)
+    advert = pub.make_advertisement(
+        service="orders",
+        methods=["ping"],
+        queue="nr.svc.orders",
+        exchange="nr.mesh",
+        instance_id="inst-1",
+    )
+    assert advert.service == "orders"
+    assert advert.methods == ("ping",)
+    assert advert.ttl_s == 30.0
+    wire = advert.to_wire()
+    assert ServiceAdvertisement.from_wire(wire) == advert
 
 
 def test_assert_bind_allowed_does_not_use_registry() -> None:

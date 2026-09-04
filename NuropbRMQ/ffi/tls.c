@@ -121,6 +121,14 @@ LEAN_EXPORT lean_obj_res nuropb_tls_send(uint64_t handle, b_lean_obj_arg buf, le
   return lean_io_result_mk_ok(lean_box(0));
 }
 
+LEAN_EXPORT lean_obj_res nuropb_tls_pending(uint64_t handle, lean_obj_arg w) {
+  (void)w;
+  NuropbTls *sess = (NuropbTls *)(uintptr_t)handle;
+  if (!sess || !sess->ssl) return lean_io_result_mk_ok(lean_box(0));
+  int n = SSL_pending(sess->ssl);
+  return lean_io_result_mk_ok(lean_box(n > 0 ? 1 : 0));
+}
+
 LEAN_EXPORT lean_obj_res nuropb_tls_recv(uint64_t handle, uint32_t max, lean_obj_arg w) {
   (void)w;
   NuropbTls *sess = (NuropbTls *)(uintptr_t)handle;

@@ -36,12 +36,13 @@ def decodeBase64Url (s : String) : Option ByteArray :=
   else
     Id.run do
       let mut out : ByteArray := ByteArray.empty
+      let cs := padded.toList
       let mut i := 0
-      while i < padded.length do
-        let ca := padded.get! ⟨i⟩
-        let cb := padded.get! ⟨i+1⟩
-        let cc := padded.get! ⟨i+2⟩
-        let cd := padded.get! ⟨i+3⟩
+      while i < cs.length do
+        let ca := cs[i]!
+        let cb := cs[i+1]!
+        let cc := cs[i+2]!
+        let cd := cs[i+3]!
         let va := if ca = '=' then some 0 else b64Val ca
         let vb := if cb = '=' then some 0 else b64Val cb
         let vc := if cc = '=' then some 0 else b64Val cc

@@ -28,13 +28,27 @@ lean_lib «NuropbRMQ» where
 target tls.o pkg : FilePath := do
   let oFile := pkg.buildDir / "c" / "tls.o"
   let srcJob ← inputTextFile <| pkg.dir / "NuropbRMQ" / "ffi" / "tls.c"
-  let weakArgs := #["-I", (← getLeanIncludeDir).toString]
+  let mut weakArgs := #["-I", (← getLeanIncludeDir).toString]
+  for p in ([
+    "/opt/homebrew/opt/openssl@3/include",
+    "/opt/homebrew/opt/openssl/include",
+    "/usr/local/opt/openssl@3/include",
+    "/usr/local/opt/openssl/include"
+  ] : List FilePath) do
+    if (← p.pathExists) then
+      weakArgs := weakArgs ++ #["-I", p.toString]
   buildO oFile srcJob weakArgs #["-fPIC"]
 
 /-- Optional AMQPS. Not a default target (Reservoir must not require libssl). -/
 lean_lib «NuropbRMQTls» where
   moreLinkObjs := #[tls.o]
-  moreLinkArgs := #["-lssl", "-lcrypto"]
+  moreLinkArgs := #[
+    "-L/opt/homebrew/opt/openssl@3/lib",
+    "-L/opt/homebrew/opt/openssl/lib",
+    "-L/usr/local/opt/openssl@3/lib",
+    "-L/usr/local/opt/openssl/lib",
+    "-lssl", "-lcrypto"
+  ]
 
 lean_exe oracle where
   root := `Oracle
@@ -61,6 +75,26 @@ lean_exe lean_mesh_client where
   srcDir := "examples"
   root := `LeanMesh.Client
 
+lean_exe lean_claims_service where
+  srcDir := "examples"
+  root := `LeanClaims.Service
+
+lean_exe lean_claims_client where
+  srcDir := "examples"
+  root := `LeanClaims.Client
+
+lean_exe lean_events_hello where
+  srcDir := "examples"
+  root := `LeanEvents.Hello
+
+lean_exe lean_dlq_hello where
+  srcDir := "examples"
+  root := `LeanDlq.Hello
+
+lean_exe lean_reconnect_client where
+  srcDir := "examples"
+  root := `LeanReconnect.Client
+
 lean_exe interop_hello_publisher where
   srcDir := "examples"
   root := `InteropHello.Publisher
@@ -76,3 +110,15 @@ lean_exe interop_mesh_service where
 lean_exe interop_mesh_client where
   srcDir := "examples"
   root := `InteropMesh.Client
+
+/-- tls-verify-full smoke. Not a default target. -/
+lean_exe lean_amqps_hello where
+  srcDir := "examples"
+  root := `LeanAmqps.Hello
+  moreLinkArgs := #[
+    "-L/opt/homebrew/opt/openssl@3/lib",
+    "-L/opt/homebrew/opt/openssl/lib",
+    "-L/usr/local/opt/openssl@3/lib",
+    "-L/usr/local/opt/openssl/lib",
+    "-lssl", "-lcrypto"
+  ]

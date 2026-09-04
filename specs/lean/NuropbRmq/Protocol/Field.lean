@@ -21,6 +21,7 @@ inductive FieldVal where
   | longstr (s : String)
   | bytes (b : ByteArray)
   | table (t : List (String × FieldVal))
+  | array (xs : List FieldVal)
 
 abbrev Table := List (String × FieldVal)
 
@@ -76,6 +77,14 @@ mutual
         match encodeTable t (depth + 1) maxDepth with
         | none => none
         | some body => some ((ByteArray.empty.push 'F'.toNat.toUInt8) ++ body)
+      | .array xs =>
+        Id.run do
+          let mut parts := ByteArray.empty
+          for x in xs do
+            match encodeFieldVal x (depth + 1) maxDepth with
+            | none => return none
+            | some b => parts := parts ++ b
+          return some ((ByteArray.empty.push 'A'.toNat.toUInt8) ++ pushU32be ByteArray.empty parts.size ++ parts)
 
   partial def encodeTable (t : Table) (depth maxDepth : Nat := defaultMaxTableDepth) : Option ByteArray :=
     if depth > maxDepth then none
@@ -123,6 +132,33 @@ mutual
           match decodeShortstr data off' with
           | none => none
           | some (s, o) => some (.longstr s, o)
+        else if c == 'T' then
+          match getU64be data off' with
+          | none => none
+          | some (n, o) => some (.int (Int.ofNat n), o)
+        else if c == 'l' || c == 'L' then
+          match getU64be data off' with
+          | none => none
+          | some (n, o) => some (.int (Int.ofNat n), o)
+        else if c == 'A' then
+          match getU32be data off' with
+          | none => none
+          | some (n, start) =>
+            if n > defaultFrameMax then none
+            else
+              let endPos := start + n
+              if endPos > data.size then none
+              else
+                Id.run do
+                  let mut pos := start
+                  let mut acc : List FieldVal := []
+                  while pos < endPos do
+                    match decodeFieldVal data pos (depth + 1) maxDepth with
+                    | none => return none
+                    | some (v, p) =>
+                      acc := acc ++ [v]
+                      pos := p
+                  return some (.array acc, endPos)
         else none
 
   partial def decodeTable (data : ByteArray) (off : Nat)

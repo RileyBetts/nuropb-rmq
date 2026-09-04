@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import socket
+import ssl
 from pathlib import Path
 
 import pytest
@@ -78,3 +79,28 @@ async def test_amqps_verify_full_publish_consume_ack() -> None:
         await conn.basic_ack(ch, msg.delivery_tag)
     finally:
         await conn.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_amqps_wrong_hostname_rejected() -> None:
+    ready = _amqps_ready()
+    if ready is None:
+        pytest.skip(
+            "AMQPS not enabled (set NUROPB_RMQ_TLS=1, CA file, broker SSL on 5671)"
+        )
+    host, port, ca, _hostname = ready
+    conn = AmqpConnection(
+        ConnectionConfig(
+            host=host,
+            port=port,
+            username="guest",
+            password="guest",
+            tls=True,
+            tls_profile=TlsProfile.VERIFY_FULL,
+            ca_file=ca,
+            server_hostname="wrong.example",
+        )
+    )
+    with pytest.raises((ssl.SSLCertVerificationError, ssl.SSLError, OSError)):
+        await conn.connect()

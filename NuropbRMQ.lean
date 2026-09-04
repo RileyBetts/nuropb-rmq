@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 import NuropbRMQ.Config
 import NuropbRMQ.Socket
+import NuropbRMQ.Transport
 import NuropbRMQ.Connection
 import NuropbRMQ.Session
 import NuropbRMQ.Rpc

@@ -20,8 +20,10 @@ structure ReconnectState where
 def wellFormedFailFast (s : ReconnectState) : Bool :=
   !(decide (s.pendingCount ≠ 0)) || s.replyOpen
 
-/-- Park gap: pending may be nonzero while replyOpen is false. -/
+/-- Park gap: pending may be nonzero while `replyOpen` is false (no extra bracket). -/
 def wellFormedPark (_s : ReconnectState) : Bool := true
+
+theorem wellFormedPark_any (s : ReconnectState) : wellFormedPark s = true := rfl
 
 def wellFormedEpoch (s : ReconnectState) : Bool := wellFormedFailFast s
 

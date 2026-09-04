@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 
 import NuropbRmq.Session.Correlation
+import NuropbRmq.Session.Ids
 
 /-!
 Session Phase 1b invariants: id format, dual-accessor, collision reject,
@@ -97,5 +98,22 @@ theorem register_keeps_wellFormed (id : CorrId)
 theorem empty_pending_wellFormed (r : Bool) :
     wellFormed { pending := [], replyOpen := r } = true := by
   cases r <;> native_decide
+
+/-! ### Executable charset (`Ids.validId`; Python `validate_id`) -/
+
+theorem validId_implies_validIdLen (s : String)
+    (h : Ids.validId s = true) :
+    Ids.validIdLen s.toUTF8.size = true := by
+  simp [Ids.validId] at h
+  exact h.1
+
+theorem validId_empty : Ids.validId "" = false := by native_decide
+
+theorem validId_space : Ids.validId "a b" = false := by native_decide
+
+/-- `.` is in the Python safe subset; `..` is a legal corr-id (mesh `..` is separate). -/
+theorem validId_dotdot : Ids.validId ".." = true := by native_decide
+
+theorem validId_alnum_punct : Ids.validId "ab.cd_1:x-y" = true := by native_decide
 
 end NuropbRmq.Session

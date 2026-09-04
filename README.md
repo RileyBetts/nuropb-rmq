@@ -141,7 +141,7 @@ require NuropbRMQ from git "https://github.com/RileyBetts/nuropb-rmq" @ "<tag>"
 ```
 
 then `import NuropbRMQ`. Default `lake build` is POSIX only (no OpenSSL).
-Optional AMQPS: `lake build NuropbRMQTls`. Interop examples:
+Optional AMQPS: `lake build NuropbRMQTls` then `./scripts/smoke_lean_amqps.sh`. Interop examples:
 [`examples/interop_hello/`](examples/interop_hello/),
 [`examples/interop_mesh/`](examples/interop_mesh/).
 

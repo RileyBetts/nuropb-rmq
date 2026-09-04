@@ -10,9 +10,12 @@ import NuropbRmq.Protocol.Methods
 import NuropbRmq.Config.QueueProfile
 import NuropbRMQ.Config
 import NuropbRMQ.Socket
+import NuropbRMQ.Transport
 
 /-!
 PLAIN AMQP 0-9-1 connection. Handshake and ops use proven `tryStep` / `legalSend`.
+I/O goes through `Transport` so AMQPS can wrap the same handshake without
+linking OpenSSL into the default client.
 -/
 
 namespace NuropbRMQ
@@ -32,6 +35,7 @@ structure IncomingMessage where
 
 structure ConnState where
   fd : UInt32
+  io : Transport
   sm : NuropbRmq.Protocol.State
   frameMax : Nat
   heartbeat : Nat
@@ -41,10 +45,12 @@ structure ConnState where
   confirmEnabled : Bool
   nextConfirm : Nat
   closed : Bool
+  inbox : List IncomingMessage
 
 instance : Inhabited ConnState where
   default := {
     fd := 0
+    io := default
     sm := {}
     frameMax := 131072
     heartbeat := 60
@@ -54,6 +60,7 @@ instance : Inhabited ConnState where
     confirmEnabled := false
     nextConfirm := 1
     closed := true
+    inbox := []
   }
 
 structure AmqpConnection where
@@ -68,18 +75,15 @@ def stepOrThrow (sm : NuropbRmq.Protocol.State) (e : Event) : IO NuropbRmq.Proto
   | some s => return s
   | none => throwIo s!"illegal AMQP event {repr e} in conn={repr sm.conn}"
 
-def writeAll (fd : UInt32) (buf : ByteArray) : IO Unit :=
-  Socket.send fd buf
-
 partial def fillAtLeast (st : IO.Ref ConnState) (n : Nat) : IO Unit := do
   let s ← st.get
   if s.closed then throwIo "connection closed"
   if s.buffer.size ≥ n then return
-  let ready ← Socket.poll s.fd 1000
+  let ready ← s.io.poll 1000
   if !ready then
     fillAtLeast st n
     return
-  let chunk ← Socket.recv s.fd 8192
+  let chunk ← s.io.recv 8192
   st.modify fun s => { s with buffer := s.buffer ++ chunk }
   fillAtLeast st n
 
@@ -94,7 +98,7 @@ def sendFrame (st : IO.Ref ConnState) (f : Frame) : IO Unit := do
   let s ← st.get
   match encodeFrame f s.frameMax with
   | none => throwIo "encodeFrame failed (frame_max)"
-  | some raw => writeAll s.fd raw
+  | some raw => s.io.send raw
 
 def sendMethod (st : IO.Ref ConnState) (ch : Nat) (m : Method) : IO Unit := do
   match encodeMethod m with
@@ -117,6 +121,35 @@ partial def readFrame (st : IO.Ref ConnState) : IO Frame := do
       st.set { s with buffer := s.buffer.extract next s.buffer.size, lastPeerMs := (← IO.monoMsNow) }
       return fr
 
+partial def assembleContentSt (st : IO.Ref ConnState) (channelId : Nat) : IO (BasicProperties × ByteArray) := do
+  let fr ← readFrame st
+  if fr.kind == .heartbeat then assembleContentSt st channelId
+  else if fr.kind != .header || fr.channel != channelId then
+    throwIo "expected content header"
+  else
+    match decodeContentHeader fr.payload with
+    | none => throwIo "decodeContentHeader failed"
+    | some (_, bodySize, props) =>
+      let mut body := ByteArray.empty
+      while body.size < bodySize do
+        let bf ← readFrame st
+        if bf.kind == .heartbeat then continue
+        if bf.kind != .body then throwIo "expected body frame"
+        body := body ++ bf.payload
+      return (props, body)
+
+def enqueueDeliver (st : IO.Ref ConnState) (m : Method) (ch : Nat) : IO Unit := do
+  let (props, body) ← assembleContentSt st ch
+  let msg : IncomingMessage := {
+    deliveryTag := (argInt m.args "delivery_tag").toNat
+    exchange := argStr m.args "exchange"
+    routingKey := argStr m.args "routing_key"
+    body, properties := props
+    redelivered := argBool m.args "redelivered"
+    consumerTag := argStr m.args "consumer_tag"
+  }
+  st.modify fun s => { s with inbox := s.inbox ++ [msg] }
+
 partial def expectMethod (st : IO.Ref ConnState) (ch classId methodId : Nat) : IO Method := do
   let fr ← readFrame st
   if fr.kind == .heartbeat then
@@ -138,26 +171,30 @@ partial def expectMethod (st : IO.Ref ConnState) (ch classId methodId : Nat) : I
         throwIo s!"broker closed: {argStr m.args "reply_text"}"
       else if m.classId == CHANNEL && m.methodId == CHANNEL_CLOSE then
         throwIo s!"channel.close {argInt m.args "reply_code"} {argStr m.args "reply_text"}"
+      else if m.classId == BASIC && m.methodId == BASIC_DELIVER then
+        enqueueDeliver st m fr.channel
+        expectMethod st ch classId methodId
       else if fr.channel == ch && m.classId == classId && m.methodId == methodId then
         return m
       else
         throwIo s!"unexpected method {m.classId}.{m.methodId} ch={fr.channel}"
 
-def connect (cfg : ConnectionConfig := {}) : IO AmqpConnection := do
+/-- Shared handshake after a byte pipe exists. `useTls` steps the proven TLS SM. -/
+def connectWith (cfg : ConnectionConfig) (io : Transport) (useTls : Bool := false)
+    (fd : UInt32 := 0) : IO AmqpConnection := do
   if cfg.heartbeat = 0 ∨ cfg.heartbeat > 60 then
     throwIo s!"heartbeat must be 1..60, got {cfg.heartbeat}"
-  if cfg.tls then
-    throwIo "TLS requires NuropbRMQTls (not default lake target)"
-  let fd ← Socket.connect cfg.host cfg.port
   let mut sm : NuropbRmq.Protocol.State := {}
-  sm ← stepOrThrow sm (.tcpConnected false)
+  sm ← stepOrThrow sm (.tcpConnected useTls)
+  if useTls then
+    sm ← stepOrThrow sm .tlsVerified
   sm ← stepOrThrow sm .amqpHeader
-  writeAll fd protocolHeader
+  io.send protocolHeader
   let st ← IO.mkRef {
-    fd, sm, frameMax := cfg.frameMax, heartbeat := cfg.heartbeat
+    fd, io, sm, frameMax := cfg.frameMax, heartbeat := cfg.heartbeat
     buffer := ByteArray.empty, blocked := false
     lastPeerMs := (← IO.monoMsNow)
-    confirmEnabled := false, nextConfirm := 1, closed := false
+    confirmEnabled := false, nextConfirm := 1, closed := false, inbox := []
   }
   let start ← expectMethod st 0 CONNECTION CONNECTION_START
   sm ← stepOrThrow (← st.get).sm .connStart
@@ -199,6 +236,12 @@ def connect (cfg : ConnectionConfig := {}) : IO AmqpConnection := do
   st.modify fun s => { s with sm, frameMax, heartbeat := hb }
   return { config := cfg, st }
 
+def connect (cfg : ConnectionConfig := {}) : IO AmqpConnection := do
+  if cfg.tls then
+    throwIo "TLS requires NuropbRMQTls.connect (not default lake target)"
+  let fd ← Socket.connect cfg.host cfg.port
+  connectWith cfg (posixTransport fd) false fd
+
 def close (c : AmqpConnection) : IO Unit := do
   let s ← c.st.get
   if s.closed then return
@@ -215,7 +258,7 @@ def close (c : AmqpConnection) : IO Unit := do
     catch _ =>
       pure ()
   let s ← c.st.get
-  Socket.close s.fd
+  try s.io.close catch _ => pure ()
   c.st.modify fun x => { x with closed := true }
 
 def openChannel (c : AmqpConnection) (channelId : Nat := 1) : IO Nat := do
@@ -351,58 +394,48 @@ def basicNack (c : AmqpConnection) (channelId deliveryTag : Nat) (requeue : Bool
     args := [("delivery_tag", .int deliveryTag), ("requeue", .bool requeue)]
   }
 
-partial def assembleContent (c : AmqpConnection) (channelId : Nat) : IO (BasicProperties × ByteArray) := do
-  let fr ← readFrame c.st
-  if fr.kind == .heartbeat then assembleContent c channelId
-  else if fr.kind != .header || fr.channel != channelId then
-    throwIo "expected content header"
-  else
-    match decodeContentHeader fr.payload with
-    | none => throwIo "decodeContentHeader failed"
-    | some (_, bodySize, props) =>
-      let mut body := ByteArray.empty
-      while body.size < bodySize do
-        let bf ← readFrame c.st
-        if bf.kind == .heartbeat then continue
-        if bf.kind != .body then throwIo "expected body frame"
-        body := body ++ bf.payload
-      return (props, body)
+def assembleContent (c : AmqpConnection) (channelId : Nat) : IO (BasicProperties × ByteArray) :=
+  assembleContentSt c.st channelId
 
 partial def receive (c : AmqpConnection) (timeoutMs : Nat := 30000) : IO IncomingMessage := do
   let s ← c.st.get
-  -- Deliver may already be buffered (same TCP read as consume-ok / prior frame).
-  if s.buffer.isEmpty then
-    let ready ← Socket.poll s.fd timeoutMs.toUInt32
-    if !ready then throwIo "receive timeout"
-  let fr ← readFrame c.st
-  if fr.kind == .heartbeat then
-    receive c timeoutMs
-  else if fr.kind != .method then
-    throwIo "expected method (deliver/return)"
-  else
-    match decodeMethod fr.payload with
-    | none => throwIo "decodeMethod failed"
-    | some m =>
-      if m.classId == CONNECTION && m.methodId == CONNECTION_BLOCKED then
-        c.st.modify fun x => { x with blocked := true }
-        receive c timeoutMs
-      else if m.classId == BASIC && m.methodId == BASIC_RETURN then
-        let _ ← assembleContent c fr.channel
-        throwIo s!"basic.return {argInt m.args "reply_code"} {argStr m.args "reply_text"}"
-      else if m.classId == BASIC && m.methodId == BASIC_DELIVER then
-        let (props, body) ← assembleContent c fr.channel
-        return {
-          deliveryTag := (argInt m.args "delivery_tag").toNat
-          exchange := argStr m.args "exchange"
-          routingKey := argStr m.args "routing_key"
-          body, properties := props
-          redelivered := argBool m.args "redelivered"
-          consumerTag := argStr m.args "consumer_tag"
-        }
-      else if m.classId == BASIC && m.methodId == BASIC_ACK then
-        receive c timeoutMs
-      else
-        throwIo s!"unexpected inbound {m.classId}.{m.methodId}"
+  match s.inbox with
+  | msg :: rest =>
+    c.st.set { s with inbox := rest }
+    return msg
+  | [] =>
+    if s.buffer.isEmpty then
+      let ready ← s.io.poll timeoutMs.toUInt32
+      if !ready then throwIo "receive timeout"
+    let fr ← readFrame c.st
+    if fr.kind == .heartbeat then
+      receive c timeoutMs
+    else if fr.kind != .method then
+      throwIo "expected method (deliver/return)"
+    else
+      match decodeMethod fr.payload with
+      | none => throwIo "decodeMethod failed"
+      | some m =>
+        if m.classId == CONNECTION && m.methodId == CONNECTION_BLOCKED then
+          c.st.modify fun x => { x with blocked := true }
+          receive c timeoutMs
+        else if m.classId == BASIC && m.methodId == BASIC_RETURN then
+          let _ ← assembleContentSt c.st fr.channel
+          throwIo s!"basic.return {argInt m.args "reply_code"} {argStr m.args "reply_text"}"
+        else if m.classId == BASIC && m.methodId == BASIC_DELIVER then
+          let (props, body) ← assembleContentSt c.st fr.channel
+          return {
+            deliveryTag := (argInt m.args "delivery_tag").toNat
+            exchange := argStr m.args "exchange"
+            routingKey := argStr m.args "routing_key"
+            body, properties := props
+            redelivered := argBool m.args "redelivered"
+            consumerTag := argStr m.args "consumer_tag"
+          }
+        else if m.classId == BASIC && m.methodId == BASIC_ACK then
+          receive c timeoutMs
+        else
+          throwIo s!"unexpected inbound {m.classId}.{m.methodId}"
 
 def updateSecret (c : AmqpConnection) (newSecret reason : String) : IO Unit := do
   let s ← c.st.get

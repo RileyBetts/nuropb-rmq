@@ -48,6 +48,8 @@ def checkFrames (path : System.FilePath) : IO Bool := do
 def applyEvent (s : NuropbRmq.Protocol.State) (tok : String) : Option NuropbRmq.Protocol.State :=
   open NuropbRmq.Protocol in
   if tok == "tcpConnected:false" then tryStep s (.tcpConnected false)
+  else if tok == "tcpConnected:true" then tryStep s (.tcpConnected true)
+  else if tok == "tlsVerified" then tryStep s .tlsVerified
   else if tok == "amqpHeader" then tryStep s .amqpHeader
   else if tok == "connStart" then tryStep s .connStart
   else if tok == "startOk" then tryStep s .startOk
@@ -94,10 +96,12 @@ def main (args : List String) : IO UInt32 := do
   let root := match args with | r :: _ => r | [] => "."
   let frames := System.FilePath.mk root / "specs" / "vectors" / "frames.txt"
   let trace := System.FilePath.mk root / "specs" / "vectors" / "sm_trace.txt"
+  let traceTls := System.FilePath.mk root / "specs" / "vectors" / "sm_trace_tls.txt"
   let acl := System.FilePath.mk root / "specs" / "vectors" / "acl.txt"
   let mut ok := true
   if !(← checkFrames frames) then ok := false
   if !(← checkTrace trace) then ok := false
+  if !(← checkTrace traceTls) then ok := false
   if !(← checkAcl acl) then ok := false
   let jwt := NuropbRmq.Pattern.Jwt.verifyHs256
     "test-secret" NuropbRmq.Pattern.Jwt.goldenToken 1700000000 "corr-id-01" "orders.ping" false

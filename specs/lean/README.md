@@ -30,6 +30,7 @@ Lean apps:
 require NuropbRMQ from git "https://github.com/RileyBetts/nuropb-rmq" @ "<tag>"
 ```
 
-then `import NuropbRMQ`. Optional AMQPS is `lake build NuropbRMQTls` (OpenSSL;
-not a default target). The Python wheel stays `nuropb_rmq` and does not embed
-Lean FFI.
+then `import NuropbRMQ`. Optional AMQPS is `import NuropbRMQTls` /
+`NuropbRMQTls.connect` (`lake build NuropbRMQTls`; OpenSSL; not a default
+target). PKCS#12 / mTLS stay residual. The Python wheel stays `nuropb_rmq`
+and does not embed Lean FFI.

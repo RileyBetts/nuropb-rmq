@@ -21,9 +21,11 @@ the release floor; AMQPS mTLS is an extra local (and optional CI residual) lane.
 | Frame fuzz | Malformed frames/tables never hang or ignore `frame_max` | `HYPOTHESIS_PROFILE=ci pytest -m fuzz` |
 | Integration | Real RabbitMQ AMQP 0-9-1 behaviour | `pytest -m integration` |
 | AMQPS | `tls-verify-full` PLAIN over TLS | `tests/integration/test_amqps_smoke.py` |
+| Lean AMQPS | Lean `NuropbRMQTls.connect` (OpenSSL; not default `lake build`) | `./scripts/smoke_lean_amqps.sh` |
 | mTLS | Client cert + SASL `EXTERNAL` (opt-in) | `tests/integration/test_amqps_mtls_smoke.py` |
 | Example smoke | Vanilla, mesh, LangChain, LangGraph against a broker | `./scripts/smoke_examples.sh` |
 | Lean↔Python interop | Shared `nr.interop.*` hello + mesh both directions | `./scripts/smoke_interop.sh` |
+| Lean IO coverage | Claims mesh, events, DLQ timeout, park/fail-fast reconnect | `./scripts/smoke_lean_coverage.sh` |
 | Packaging | sdist/wheel metadata | `uv build && uvx twine check dist/*` |
 
 Unit coverage is a **regression floor** (`--cov-fail-under=50` on the unit lane),
@@ -40,7 +42,7 @@ live broker checks, not cryptographic hardness.
 | Codec / frames | Oversized or truncated frames, deep tables | `frame_bounds*_negatives.smt2` | `tests/transport/test_frame*.py`, fuzz lane |
 | Handshake SM | Send methods out of order; AMQP during TLS handshake | `connection_channel_sm_negatives.smt2` | `tests/protocol/test_state_machines.py`, PBTs |
 | `update-secret` | Rotate secret before `OPEN_OK` | `update_secret_negatives.smt2` | live `test_update_secret_same_password` |
-| Flow control | Publish while `connection.blocked` | `connection_blocked_negatives.smt2` | `tests/transport/test_blocked_methods.py` |
+| Flow control | Publish while `connection.blocked` | `connection_blocked_negatives.smt2` | `tests/transport/test_blocked_methods.py` (inject `_publish_blocked`; not a live broker alarm) |
 | Heartbeat | Silent peer; miss-count | `heartbeat_watchdog_negatives.smt2` | `tests/transport/test_heartbeat.py` |
 | Confirms vs return | Treat `basic.return` as nack; drop unroutable | `publisher_confirms_*`, `basic_return_*` | `tests/transport/test_{confirm,return}.py`, live return tests |
 | Correlation | Colliding ids; second reply steals first; register with reply closed | `correlation_negatives.smt2` | `tests/session/test_correlation.py` |
@@ -49,7 +51,7 @@ live broker checks, not cryptographic hardness.
 | JWT / claims | Missing, bad sig, expired, `jti`≠corr, method mismatch | same Pattern negatives + Lean `tryAuth_*` | `test_context.py`, golden `test_jwt_golden.py`, live mesh claims |
 | Reply forge | Client publish to another `nr.reply.*` via default exchange | `acl_negatives.smt2`; Lean `forgeDenied` | `test_acl.py`; live waits for `channel.close` **403** on `amq.default` |
 | Error oracle | Distinct fields for timeout vs other mesh errors | (shape only; not SpeC++) | `test_anti_enumeration.py` |
-| TLS | Skip verify; wrong hostname | outside Lean | AMQPS `VERIFY_FULL`; mTLS + `EXTERNAL` opt-in |
+| TLS | Skip verify; wrong hostname | outside Lean | AMQPS `VERIFY_FULL`; `test_amqps_wrong_hostname_rejected`; mTLS + `EXTERNAL` opt-in |
 | Durability | Non-persistent publish on durable profile | `queue_profile_negatives.smt2` | `test_queue_profile.py` + live quorum RPC |
 
 ## What this regime does not claim
@@ -86,5 +88,7 @@ NUROPB_RMQ_TLS=1 NUROPB_RMQ_PORT=5671 NUROPB_RMQ_CA_FILE=dev/amqps/ca.pem \
   uv run pytest -q tests/integration/test_amqps_smoke.py
 ./scripts/smoke_examples.sh
 ./scripts/smoke_interop.sh
+./scripts/smoke_lean_coverage.sh
+./scripts/smoke_lean_amqps.sh
 uv build && uvx twine check dist/*
 ```

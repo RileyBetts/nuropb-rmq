@@ -125,6 +125,32 @@ jobs:
       - name: Golden oracle
         run: lake exe oracle .
 
+  lean-amqps:
+    name: Lean AMQPS tls-verify-full
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: .
+          build: false
+          test: false
+          lint: false
+      - name: Install OpenSSL headers
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Generate AMQPS certs
+        run: ./scripts/gen_amqps_certs.sh
+      - name: Start RabbitMQ with TLS
+        run: ./scripts/ci_start_amqps_broker.sh
+      - name: Lean AMQPS smoke
+        env:
+          NUROPB_RMQ_TLS: "1"
+          NUROPB_RMQ_HOST: 127.0.0.1
+          NUROPB_RMQ_PORT: "5671"
+          NUROPB_RMQ_CA_FILE: ${{ github.workspace }}/dev/amqps/ca.pem
+          NUROPB_RMQ_SERVER_HOSTNAME: localhost
+        run: ./scripts/smoke_lean_amqps.sh
+
   lean-interop:
     name: Lean↔Python interop examples
     runs-on: ubuntu-latest
@@ -155,3 +181,8 @@ jobs:
           NUROPB_RMQ_HOST: 127.0.0.1
           NUROPB_RMQ_PORT: "5672"
         run: ./scripts/smoke_interop.sh
+      - name: Lean IO coverage smoke
+        env:
+          NUROPB_RMQ_HOST: 127.0.0.1
+          NUROPB_RMQ_PORT: "5672"
+        run: ./scripts/smoke_lean_coverage.sh
