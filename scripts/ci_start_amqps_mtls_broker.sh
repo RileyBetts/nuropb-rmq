@@ -2,15 +2,13 @@
 # Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
 # Released under Apache 2.0 license as described in the file LICENSE.
 
-# Two-phase Docker RabbitMQ (same run shape as ci_start_amqps_broker.sh:
-# default entrypoint, no --hostname, no cookie env).
-#
-# 1. Boot the *PLAIN* AMQPS conf. verify_peer / EXTERNAL in the first
-#    rabbitmq.conf makes prelaunch fail on GitHub Actions with
-#    .erlang.cookie eacces (the AMQPS job uses this exact file and is green).
-# 2. After ping: enable rabbitmq_auth_mechanism_ssl, add CN user, permissions.
-# 3. Recreate with the full mTLS conf + the persisted enabled_plugins so
-#    EXTERNAL is legal at prelaunch.
+# 1. Start with the green AMQPS starter (same docker run as `amqps` /
+#    `lean-amqps`: name rmq-amqps, PLAIN conf). Do not first-boot
+#    verify_peer or EXTERNAL — that fails prelaunch on GitHub Actions
+#    (.erlang.cookie eacces). Do not recreate the container.
+# 2. Rename, enable rabbitmq_auth_mechanism_ssl, add CN user.
+# 3. Drop verify_peer + EXTERNAL into conf.d (writable in-image) and
+#    restart the same container so the cookie and enabled_plugins stay.
 # Maps CN nuropb-client.
 set -euo pipefail
 
@@ -18,20 +16,30 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 CLIENT_CN="${NUROPB_AMQPS_CLIENT_CN:-nuropb-client}"
-PLUGINS_RUNTIME="$ROOT/scripts/.rabbitmq-mtls.enabled_plugins"
 
-chmod a+r dev/amqps/ca.pem dev/amqps/server.pem dev/amqps/server.key \
-  dev/amqps/client.pem
+for name in rmq-amqps-mtls rmq-amqps; do
+  if docker ps -a --format '{{.Names}}' | grep -qx "$name"; then
+    docker rm -fv "$name" >/dev/null
+  fi
+done
 
-if docker ps -a --format '{{.Names}}' | grep -qx rmq-amqps-mtls; then
-  docker rm -fv rmq-amqps-mtls >/dev/null
-fi
+"$ROOT/scripts/ci_start_amqps_broker.sh"
+docker rename rmq-amqps rmq-amqps-mtls
 
-docker run -d --name rmq-amqps-mtls \
-  -p 5671:5671 \
-  -v "$PWD/dev/amqps:/certs:ro" \
-  -v "$PWD/scripts/rabbitmq-amqps.ci.conf:/etc/rabbitmq/rabbitmq.conf:ro" \
-  rabbitmq:3-management
+docker exec rmq-amqps-mtls rabbitmq-plugins enable rabbitmq_auth_mechanism_ssl
+docker exec rmq-amqps-mtls rabbitmqctl add_user "$CLIENT_CN" unused-password || true
+docker exec rmq-amqps-mtls rabbitmqctl set_permissions -p / "$CLIENT_CN" ".*" ".*" ".*"
+
+docker exec rmq-amqps-mtls sh -c 'cat > /etc/rabbitmq/conf.d/99-mtls-external.conf <<EOF
+ssl_options.verify = verify_peer
+ssl_options.fail_if_no_peer_cert = true
+ssl_cert_login_from = common_name
+auth_mechanisms.1 = PLAIN
+auth_mechanisms.2 = AMQPLAIN
+auth_mechanisms.3 = EXTERNAL
+EOF'
+
+docker restart rmq-amqps-mtls >/dev/null
 
 mtls_ready() {
   python3 - <<'PY'
@@ -54,38 +62,19 @@ broker_ready() {
   docker exec rmq-amqps-mtls rabbitmq-diagnostics -q ping >/dev/null 2>&1
 }
 
-wait_broker() {
-  local label="$1"
-  for _ in $(seq 1 60); do
-    if broker_ready; then
-      echo "$label"
-      return 0
-    fi
-    sleep 2
-  done
+for _ in $(seq 1 60); do
+  if broker_ready; then
+    echo "AMQPS mTLS phase 2 ready (same node + conf.d EXTERNAL)"
+    break
+  fi
+  sleep 2
+done
+
+if ! broker_ready; then
   docker logs rmq-amqps-mtls || true
-  echo "RabbitMQ did not become ready ($label)" >&2
-  return 1
-}
-
-wait_broker "AMQPS mTLS phase 1 ready (PLAIN AMQPS conf)"
-
-docker exec rmq-amqps-mtls rabbitmq-plugins enable rabbitmq_auth_mechanism_ssl
-docker exec rmq-amqps-mtls rabbitmqctl add_user "$CLIENT_CN" unused-password || true
-docker exec rmq-amqps-mtls rabbitmqctl set_permissions -p / "$CLIENT_CN" ".*" ".*" ".*"
-docker cp rmq-amqps-mtls:/etc/rabbitmq/enabled_plugins "$PLUGINS_RUNTIME"
-chmod 644 "$PLUGINS_RUNTIME"
-
-docker rm -fv rmq-amqps-mtls >/dev/null
-
-docker run -d --name rmq-amqps-mtls \
-  -p 5671:5671 \
-  -v "$PWD/dev/amqps:/certs:ro" \
-  -v "$PWD/scripts/rabbitmq-amqps-mtls.ci.conf:/etc/rabbitmq/rabbitmq.conf:ro" \
-  -v "$PLUGINS_RUNTIME:/etc/rabbitmq/enabled_plugins" \
-  rabbitmq:3-management
-
-wait_broker "AMQPS mTLS phase 2 ready (EXTERNAL in conf + plugin)"
+  echo "RabbitMQ did not become ready after conf.d EXTERNAL" >&2
+  exit 1
+fi
 
 for _ in $(seq 1 60); do
   if mtls_ready; then
