@@ -159,8 +159,9 @@ Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; `auth
 
 JWT HS256 compact verify is executable in `Pattern.Jwt` (not a PRF proof).
 Broker ACL profiles are executable in `Pattern.Acl` (not the broker binary).
-Live `test_reply_acl_amqp.py` uses RabbitMQ `write` on `amq.default` (default-exchange
-RPC) and waits for `channel.close` 403 — not a routing-key match.
+Live `test_reply_acl_amqp.py` and `scripts/smoke_lean_reply_acl.sh` use RabbitMQ
+`write` on `amq.default` (default-exchange RPC) and wait for `channel.close` 403
+— not a routing-key match.
 Python also refuses empty method / `..` segments beyond the SpeC++ prefix core.
 
 ## Session Phase 2 (Reconnect + DeadLetterTimeout)
