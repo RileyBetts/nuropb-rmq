@@ -108,13 +108,50 @@ jobs:
         run: uv run pytest -q tests/integration/test_amqps_smoke.py
 
   lean:
-    name: Lean Phase 1 / 1b / 2
+    name: Lean NuropbRMQSpec + NuropbRMQ
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: leanprover/lean-action@v1
         with:
-          lake-package-directory: specs/lean
-          build: true
+          lake-package-directory: .
+          build: false
           test: false
           lint: false
+      - name: Proofs (no IO)
+        run: lake build NuropbRMQSpec
+      - name: Client (POSIX)
+        run: lake build NuropbRMQ
+      - name: Golden oracle
+        run: lake exe oracle .
+
+  lean-interop:
+    name: Lean↔Python interop examples
+    runs-on: ubuntu-latest
+    needs: [lean]
+    services:
+      rabbitmq:
+        image: rabbitmq:3-management
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5672:5672
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: .
+          build: false
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --dev
+      - run: lake build
+      - name: Interop smoke
+        env:
+          NUROPB_RMQ_HOST: 127.0.0.1
+          NUROPB_RMQ_PORT: "5672"
+        run: ./scripts/smoke_interop.sh

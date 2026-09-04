@@ -31,6 +31,7 @@ not a Celery replacement.
 - Optional mesh discovery registry (announce/viewer — never a bind authority)
 - Runnable LangChain tool + LangGraph remote-node examples over the mesh
 - Throughput harness vs pika (`[bench]` extra)
+- Lean 4 client (`import NuropbRMQ`) on the same mesh; proofs stay `NuropbRMQSpec`
 
 ## Installation
 
@@ -119,6 +120,7 @@ also `uv sync` in `examples/langchain_example` and `examples/langgraph_example`)
 
 ```bash
 ./scripts/smoke_examples.sh
+./scripts/smoke_interop.sh   # Lean ↔ Python; needs lake
 ```
 
 ## Documentation
@@ -132,6 +134,17 @@ User guides (config, AMQPS, mesh, claims): **[`docs/`](docs/README.md)**
 - [TLS profiles and material](docs/concepts/tls-profiles-and-material.md)
 - [Broker permissions](docs/guides/broker-permissions.md)
 
+Lean apps (Reservoir package **`NuropbRMQ`**, Lean 4.33):
+
+```text
+require NuropbRMQ from git "https://github.com/RileyBetts/nuropb-rmq" @ "<tag>"
+```
+
+then `import NuropbRMQ`. Default `lake build` is POSIX only (no OpenSSL).
+Optional AMQPS: `lake build NuropbRMQTls`. Interop examples:
+[`examples/interop_hello/`](examples/interop_hello/),
+[`examples/interop_mesh/`](examples/interop_mesh/).
+
 Lean ↔ Python map: [`specs/lean/CORRESPONDENCE.md`](specs/lean/CORRESPONDENCE.md).
 Release notes: [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -141,8 +154,9 @@ Correctness work is part of the project, not an afterthought:
 
 - SpeC++ SMT CheckSat under [`specs/specpp/`](specs/specpp/) (Protocol, Session,
   Pattern, Phase 2, Config)
-- Lean proofs under [`specs/lean/`](specs/lean/) (Protocol, Session, Pattern,
-  Config, reconnect)
+- Lean proofs under [`specs/lean/`](specs/lean/) — Lake target `NuropbRMQSpec`
+  from the repo root (`lake build NuropbRMQSpec`). The Lean IO client is
+  `import NuropbRMQ` (same kernels; no extraction).
 
 Contributor commands to run these gates are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

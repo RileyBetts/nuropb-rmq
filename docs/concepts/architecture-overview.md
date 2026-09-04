@@ -25,8 +25,13 @@ flowchart TB
 
 Your code uses **Pattern** APIs (`RpcClient`, `MeshService`, events) or drops
 down to **Transport** (`AmqpConnection`). **Session** owns exclusive reply
-queues and correlation ids. **Lean / SpeC++** are parallel proof artifacts —
-they are not a runtime dependency.
+queues and correlation ids.
+
+There are **two runtimes**. Python (`nuropb_rmq`, asyncio) stays on the 1.0
+freeze and does not load Lean. Lean apps `import NuropbRMQ` and talk the same
+mesh; that client **imports** the proof kernels (`tryStep`, `tryBind`, HS256)
+rather than extracting them. SpeC++ remains a CheckSat gate only. See
+[`specs/lean/CORRESPONDENCE.md`](../../specs/lean/CORRESPONDENCE.md) (Runtime).
 
 ## Mesh RPC path
 
@@ -125,8 +130,13 @@ of the same robustness story — see queue profiles and connection config docs.
 - [Connection config](connection-config.md)
 - Runnable demos:
   [`examples/one_client_one_service/`](../../examples/one_client_one_service/)
-  (mesh RPC + events),
+  (Python mesh RPC + events),
+  [`examples/lean_mesh/`](../../examples/lean_mesh/)
+  (Lean ↔ Lean mesh),
+  [`examples/interop_hello/`](../../examples/interop_hello/) and
+  [`examples/interop_mesh/`](../../examples/interop_mesh/)
+  (Lean ↔ Python),
   [`examples/langchain_example/`](../../examples/langchain_example/)
-  (LangChain tool),
+  (LangChain tool; Python-only),
   [`examples/langgraph_example/`](../../examples/langgraph_example/)
-  (LangGraph remote node + reconnect)
+  (LangGraph remote node + reconnect; Python-only)

@@ -61,7 +61,10 @@ HYPOTHESIS_PROFILE=ci uv run pytest -q -m fuzz
 uv sync --dev --extra claims && uv run pytest -q tests/patterns/test_context.py tests/patterns/test_jwt_golden.py
 # with RabbitMQ on 5672 (or set NUROPB_RMQ_HOST / NUROPB_RMQ_PORT):
 uv run pytest -q -m integration
-(cd specs/lean && lake build)
+# from repository root (nested specs/lean is not the Lake package)
+lake build NuropbRMQSpec   # proofs, no sockets
+lake build NuropbRMQ       # POSIX client
+lake exe oracle .          # golden vectors (specs/vectors/)
 ```
 
 Claims + mesh integration:
@@ -77,6 +80,8 @@ first:
 
 ```bash
 ./scripts/smoke_examples.sh
+# Lean ↔ Python interop (needs lake + broker):
+./scripts/smoke_interop.sh
 ```
 
 AMQPS / mTLS opt-in tests: see README TLS section and

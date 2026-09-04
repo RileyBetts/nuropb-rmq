@@ -1,0 +1,2 @@
+tryBind orders orders.ping bindOk
+tryBind orders payments.charge bindRefused

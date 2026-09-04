@@ -14,13 +14,16 @@ the release floor; AMQPS mTLS is an extra local (and optional CI residual) lane.
 |-------|----------------|------|
 | SpeC++ sat | A legal world exists for the clause | `uv run python specs/specpp/check_sat.py` |
 | SpeC++ **unsat** (negatives) | The named attack/contradiction is impossible in the model | same runner; UNKNOWN fails |
-| Lean 4 | Theorems over the same sorts (executable JWT/ACL/SHA-256, not hardness) | `cd specs/lean && lake build` |
+| Lean 4 proofs | Theorems over the same sorts (executable JWT/ACL/SHA-256, not hardness) | `lake build NuropbRMQSpec` (repo root) |
+| Lean oracle | Golden frames / SM trace / ACL / JWT vs spec kernels | `lake exe oracle .` |
+| Lean client | POSIX AMQP + mesh (`import NuropbRMQ`) | `lake build NuropbRMQ` |
 | Unit + PBT | Python state machines, codec bounds, claims, ACL prefixes | `pytest -m "not integration and not benchmark and not fuzz"` |
 | Frame fuzz | Malformed frames/tables never hang or ignore `frame_max` | `HYPOTHESIS_PROFILE=ci pytest -m fuzz` |
 | Integration | Real RabbitMQ AMQP 0-9-1 behaviour | `pytest -m integration` |
 | AMQPS | `tls-verify-full` PLAIN over TLS | `tests/integration/test_amqps_smoke.py` |
 | mTLS | Client cert + SASL `EXTERNAL` (opt-in) | `tests/integration/test_amqps_mtls_smoke.py` |
 | Example smoke | Vanilla, mesh, LangChain, LangGraph against a broker | `./scripts/smoke_examples.sh` |
+| Lean↔Python interop | Shared `nr.interop.*` hello + mesh both directions | `./scripts/smoke_interop.sh` |
 | Packaging | sdist/wheel metadata | `uv build && uvx twine check dist/*` |
 
 Unit coverage is a **regression floor** (`--cov-fail-under=50` on the unit lane),
@@ -68,7 +71,9 @@ not merely TCP accept). TLS: `scripts/gen_amqps_certs.sh` plus
 uv lock --check
 uv run ruff check src tests
 uv run python specs/specpp/check_sat.py
-(cd specs/lean && lake build)
+lake build NuropbRMQSpec
+lake build NuropbRMQ
+lake exe oracle .
 uv run pytest -q -m "not integration and not benchmark and not fuzz" \
   --cov=nuropb_rmq --cov-fail-under=50
 HYPOTHESIS_PROFILE=ci uv run pytest -q -m fuzz
@@ -80,5 +85,6 @@ NUROPB_RMQ_TLS=1 NUROPB_RMQ_PORT=5671 NUROPB_RMQ_CA_FILE=dev/amqps/ca.pem \
   NUROPB_RMQ_SERVER_HOSTNAME=localhost \
   uv run pytest -q tests/integration/test_amqps_smoke.py
 ./scripts/smoke_examples.sh
+./scripts/smoke_interop.sh
 uv build && uvx twine check dist/*
 ```

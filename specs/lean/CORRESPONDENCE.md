@@ -29,6 +29,8 @@ Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; `auth
 | `NuropbRmq.Protocol.ChanState` | `nuropb_rmq.protocol.channel_sm.ChanState` |
 | `NuropbRmq.Protocol.ConnectionSM` | `ConnectionStateMachine` + `ChannelStateMachine` |
 | `NuropbRmq.Protocol.FrameDecode` | `nuropb_rmq.transport.frame` decode/encode bounds (`payload+8 ≤ frame_max`) |
+| `NuropbRmq.Protocol.Bytes` / `Frame` / `Field` / `Methods` | Executable AMQP codec (Lean client + `lake exe oracle`) |
+| `NuropbRmq.Pattern.Envelope` | JSON-RPC 2.0 body (`separators=(",", ":")`) |
 | `NuropbRmq.Protocol.PublisherConfirms` | `transport/confirm.py` ConfirmTracker; SpeC++ `publisher_confirms*.smt2` |
 | `NuropbRmq.Protocol.BasicReturn` | `basic.return` / mandatory publish; SpeC++ `basic_return*.smt2`; `PublishReturned` |
 | `NuropbRmq.Protocol.DeliverySettle` | `basic_ack` / `basic_nack` / `basic_reject`; `NackDelivery` |
@@ -181,13 +183,48 @@ Python also refuses empty method / `..` segments beyond the SpeC++ prefix core.
 | `NuropbRmq.Config.consistent` / `durable_requires_persistent` | `QueueProfile.__post_init__` / `assert_delivery_mode` |
 | `durableAtLeastOnce_consistent` | `DURABLE_AT_LEAST_ONCE` / `tests/config/test_queue_profile.py` |
 
+## Runtime (dual clients)
+
+Python and Lean are **two runtimes** over the same kernels. There is no
+extraction in either direction. The Python 1.0 API (`src/nuropb_rmq/api.py`)
+is frozen; Lean names mirror it and are not a Python API change.
+
+| Role | Artifact |
+|---|---|
+| Proofs + kernels | Lake target `NuropbRMQSpec` (`import NuropbRmq.*`, no `IO`) |
+| Lean AMQP/mesh client | Lake package / `import NuropbRMQ` (POSIX sockets; imports kernels) |
+| Optional AMQPS | `NuropbRMQTls` (OpenSSL; not `default_target`) |
+| Python 1.0 | `nuropb_rmq` / PyPI `nuropb-rmq` (asyncio; no Lean FFI in the wheel) |
+
+| Lean client | Python 1.0 |
+|---|---|
+| `NuropbRMQ.connect` / `AmqpConnection` | `AmqpConnection` |
+| `NuropbRMQ.Session` | `Session` |
+| `NuropbRMQ.RpcClient` / `RpcServer` | `RpcClient` / `RpcServer` |
+| `NuropbRMQ.MeshService` / `ServiceIdentity` | `MeshService` / `ServiceIdentity` |
+| `NuropbRMQ.EventPublisher` / `EventSubscriber` | `EventPublisher` / `EventSubscriber` |
+| `NuropbRMQ.MeshRegistryPublisher` / `MeshRegistryViewer` | `MeshRegistryPublisher` / `MeshRegistryViewer` |
+| `NuropbRMQ.DlqTimeoutProcessor` | `DlqTimeoutProcessor` |
+| `NuropbRmq.Protocol.tryStep` / `legalSend` | Python connection/channel SMs |
+| `NuropbRmq.Pattern.Mesh.tryBind` | `MeshService.assert_bind_allowed` |
+| `NuropbRmq.Pattern.Jwt.verifyHs256` | `AuthConfig.verify_request` (HS256) |
+
+Interop suites (shared `nr.interop.*` keys so they do not clash with
+`one_client_one_service`): `examples/interop_hello/`, `examples/interop_mesh/`,
+`examples/lean_mesh/`. Smoke: `./scripts/smoke_interop.sh`.
+
 ## Build / test
 
 ```bash
 python specs/specpp/check_sat.py
-cd specs/lean && lake build
-cd ../.. && pytest -q tests/protocol tests/transport tests/session tests/patterns
+# from repository root
+lake build NuropbRMQSpec
+lake build NuropbRMQ
+lake exe oracle .
+pytest -q tests/protocol tests/transport tests/session tests/patterns
 # claims unit tests need: uv sync --dev --extra claims
 # integration (needs local RabbitMQ):
 pytest -q tests/integration
+# Lean ↔ Python interop (needs lake + broker):
+./scripts/smoke_interop.sh
 ```

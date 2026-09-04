@@ -39,16 +39,20 @@ correspondence for contributors is in [`specs/lean/CORRESPONDENCE.md`](../specs/
 ## Examples
 
 Runnable demos under [`examples/`](../examples/). Smoke all suites with
-[`scripts/smoke_examples.sh`](../scripts/smoke_examples.sh). LangChain / LangGraph
-suites need `uv sync` in their example directories first.
+[`scripts/smoke_examples.sh`](../scripts/smoke_examples.sh). Lean ↔ Python interop:
+[`scripts/smoke_interop.sh`](../scripts/smoke_interop.sh). LangChain / LangGraph
+suites need `uv sync` in their example directories first. They stay Python-only.
 
 | Example | Shows |
 |---------|--------|
 | [vanilla_hello](../examples/vanilla_hello/) | Durable publish/consume |
 | [vanilla_topic](../examples/vanilla_topic/) | Topic pub/sub |
 | [one_client_one_service](../examples/one_client_one_service/) | Mesh RPC + events + registry |
-| [langchain_example](../examples/langchain_example/) | LangChain tool → `orders.get_status` mesh RPC |
-| [langgraph_example](../examples/langgraph_example/) | LangGraph `remote_node` invoice extract + reconnect replay |
+| [lean_mesh](../examples/lean_mesh/) | Lean ↔ Lean mesh (`import NuropbRMQ`) |
+| [interop_hello](../examples/interop_hello/) | Lean ↔ Python durable queue both directions |
+| [interop_mesh](../examples/interop_mesh/) | Lean ↔ Python mesh RPC/events both directions |
+| [langchain_example](../examples/langchain_example/) | LangChain tool → `orders.get_status` mesh RPC (Python-only) |
+| [langgraph_example](../examples/langgraph_example/) | LangGraph `remote_node` invoice extract + reconnect replay (Python-only) |
 
 ## Also see
 
