@@ -11,7 +11,8 @@ All notable changes to this project are documented in this file.
 - Optional AMQPS via `NuropbRMQTls.connect` / `Transport` (`tls-verify-full` PEM)
 - Lean ↔ Python interop, Lean AMQPS, Lean IO coverage, and Lean reply-forge 403
   smokes (`scripts/smoke_interop.sh`, `smoke_lean_amqps.sh`,
-  `smoke_lean_coverage.sh`, `smoke_lean_reply_acl.sh`, `smoke_lean_mtls.sh`,
+  `smoke_lean_coverage.sh`, `smoke_lean_reply_acl.sh`,
+  `smoke_lean_reply_acl_regex.sh`, `smoke_lean_mtls.sh`,
   `smoke_lean_jwt_asymmetric.sh`)
 - CI jobs: `lean`, `lean-interop` (includes coverage + 403), `lean-amqps`,
   `lean-mtls` (mTLS PEM + SASL `EXTERNAL`; not required to merge)
@@ -19,6 +20,8 @@ All notable changes to this project are documented in this file.
   PKCS#12 bag is set (`NuropbRMQTls` / OpenSSL FFI only)
 - Lean RS256/ES256 JWT verify on `NuropbRMQTls` / OpenSSL FFI (PyJWT goldens;
   default `lake build` stays libc / HS256)
+- Scoped `matchesRegex` (Lean + Python) for documented ACL profiles as regex,
+  plus a live narrower-than-prefix regex 403; full broker engine stays residual
 - Lean `authorize_func`: opaque `authorizeOk` on `tryAuth`, optional RPC hook
   after HS256 (`claims → method → params → Bool`); deny/allow in Lean claims smoke
 - Proof hygiene: channel `allowsOps`, `Reachable` witnesses, `wellFormedPark`,
@@ -32,7 +35,7 @@ All notable changes to this project are documented in this file.
 - Park republish remains at-least-once (not exactly-once)
 - Default `lake build` does not link OpenSSL (PKCS#12 / mTLS / RS256/ES256 stay
   on `NuropbRMQTls` only)
-- HMAC hardness and RabbitMQ regex ACL stay residual
+- HMAC hardness and the full RabbitMQ regex engine / HA stay residual
 
 ## 1.0.0 — 2026-09-01
 
