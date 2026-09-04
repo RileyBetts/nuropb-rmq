@@ -49,7 +49,8 @@ provider key; `--smoke` does not.
 | `NUROPB_RMQ_KEY_FILE` | Client key PEM (mTLS) |
 | `NUROPB_RMQ_SERVER_HOSTNAME` | TLS hostname / SNI (often `localhost` for local harness) |
 
-See [Local AMQPS harness](../guides/amqps-local.md).
+See [Local AMQPS harness](../guides/amqps-local.md). Lean mTLS:
+`./scripts/smoke_lean_mtls.sh` (same cert env; `lake build NuropbRMQTls`).
 
 ## Related
 

@@ -84,8 +84,9 @@ first:
 ./scripts/smoke_interop.sh
 ```
 
-AMQPS / mTLS opt-in tests: see README TLS section and
-`tests/integration/test_amqps_*.py` plus scripts under `scripts/`.
+AMQPS / mTLS tests: see README TLS section,
+`tests/integration/test_amqps_*.py`, `./scripts/smoke_lean_amqps.sh`, and
+`./scripts/smoke_lean_mtls.sh`. `lean-mtls` is not required to merge.
 
 ## Publishing
 
@@ -120,8 +121,8 @@ targets 1.0.0):
   lane — a regression floor, not a vanity target)
 - `specs/lean/CORRESPONDENCE.md` re-audited for the tag
 
-mTLS / SASL `EXTERNAL` remains an opt-in local/CI residual (extra plugin + CN
-mapping). Crypto-hardness and RS256/ES256 are not Lean 1.0 claims.
+mTLS / SASL `EXTERNAL` is Lean + Python (`lean-mtls`, not required to merge).
+PKCS#12 in Lean, crypto-hardness, and RS256/ES256 stay residual.
 
 Celery parity, LangGraph-in-core, `basic.get` / Tx / purge stay out of tree.
 

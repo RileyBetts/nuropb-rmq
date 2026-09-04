@@ -143,6 +143,7 @@ require NuropbRMQ from git "https://github.com/RileyBetts/nuropb-rmq" @ "<tag>"
 
 then `import NuropbRMQ`. Default `lake build` is POSIX only (no OpenSSL).
 Optional AMQPS: `lake build NuropbRMQTls` then `./scripts/smoke_lean_amqps.sh`.
+mTLS + SASL `EXTERNAL`: `./scripts/smoke_lean_mtls.sh` (not default `lake build`).
 Interop: `./scripts/smoke_interop.sh`. Coverage (claims, events, DLQ, reconnect):
 `./scripts/smoke_lean_coverage.sh`. Reply-forge 403: `./scripts/smoke_lean_reply_acl.sh`.
 Examples:

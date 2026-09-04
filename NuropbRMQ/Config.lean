@@ -21,6 +21,12 @@ structure ConnectionConfig where
   serverHostname : Option String := none
   deriving Repr, Inhabited
 
+/-- Client cert present (PEM pair). Used to prefer SASL EXTERNAL when offered. -/
+def ConnectionConfig.hasClientCert (cfg : ConnectionConfig) : Bool :=
+  match cfg.certFile, cfg.keyFile with
+  | some c, some k => !c.isEmpty && !k.isEmpty
+  | _, _ => false
+
 def envConfig : IO ConnectionConfig := do
   let host := (← IO.getEnv "NUROPB_RMQ_HOST").getD "127.0.0.1"
   let portS := (← IO.getEnv "NUROPB_RMQ_PORT").getD "5672"
