@@ -45,7 +45,7 @@ rabbitmqctl set_permissions -p / nuropb-client ".*" ".*" ".*"
 # restart broker with mTLS conf
 ```
 
-3. Run:
+3. Run Python and/or Lean smokes (Docker starter: `scripts/ci_start_amqps_mtls_broker.sh`):
 
 ```bash
 export NUROPB_RMQ_MTLS=1
@@ -56,10 +56,12 @@ export NUROPB_RMQ_CERT_FILE="$PWD/dev/amqps/client.pem"
 export NUROPB_RMQ_KEY_FILE="$PWD/dev/amqps/client.key"
 export NUROPB_RMQ_SERVER_HOSTNAME=localhost
 pytest -q tests/integration/test_amqps_mtls_smoke.py
+./scripts/smoke_lean_mtls.sh
 ```
 
 The client prefers `EXTERNAL` only when the broker advertises it **and** a
-client cert is configured.
+client cert is configured. Lean `selectSasl` matches that rule. Default
+`lake build` still does not link OpenSSL (`lake build NuropbRMQTls`).
 
 ## Related
 

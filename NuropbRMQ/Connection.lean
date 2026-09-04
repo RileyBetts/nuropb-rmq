@@ -179,6 +179,18 @@ partial def expectMethod (st : IO.Ref ConnState) (ch classId methodId : Nat) : I
       else
         throwIo s!"unexpected method {m.classId}.{m.methodId} ch={fr.channel}"
 
+/-- Prefer EXTERNAL when offered and a client cert is configured; else PLAIN. -/
+def selectSasl (cfg : ConnectionConfig) (mechanisms : String) : IO (String × ByteArray) := do
+  let offered := mechanisms.splitOn " "
+  if offered.contains "EXTERNAL" && cfg.hasClientCert then
+    return ("EXTERNAL", ByteArray.empty)
+  if !offered.contains "PLAIN" then
+    throwIo s!"no supported SASL mechanism in {mechanisms}"
+  let response :=
+    (ByteArray.empty.push 0) ++ cfg.username.toUTF8 ++
+    (ByteArray.empty.push 0) ++ cfg.password.toUTF8
+  return ("PLAIN", response)
+
 /-- Shared handshake after a byte pipe exists. `useTls` steps the proven TLS SM. -/
 def connectWith (cfg : ConnectionConfig) (io : Transport) (useTls : Bool := false)
     (fd : UInt32 := 0) : IO AmqpConnection := do
@@ -198,16 +210,13 @@ def connectWith (cfg : ConnectionConfig) (io : Transport) (useTls : Bool := fals
   }
   let start ← expectMethod st 0 CONNECTION CONNECTION_START
   sm ← stepOrThrow (← st.get).sm .connStart
-  let mechanisms := argStr start.args "mechanisms"
-  if !(mechanisms.splitOn " ").contains "PLAIN" then
-    throwIo s!"PLAIN not offered: {mechanisms}"
-  let response := (ByteArray.empty.push 0) ++ cfg.username.toUTF8 ++ (ByteArray.empty.push 0) ++ cfg.password.toUTF8
+  let (mechanism, response) ← selectSasl cfg (argStr start.args "mechanisms")
   if !legalSend .startOk sm.conn then throwIo "illegal start-ok"
   sendMethod st 0 {
     classId := CONNECTION, methodId := CONNECTION_START_OK
     args := [
       ("client_properties", .table [("product", .longstr "nuropb-rmq"), ("version", .longstr "lean-0.1")]),
-      ("mechanism", .longstr "PLAIN"),
+      ("mechanism", .longstr mechanism),
       ("response", .bytes response),
       ("locale", .longstr "en_US"),
     ]

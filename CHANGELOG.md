@@ -11,8 +11,10 @@ All notable changes to this project are documented in this file.
 - Optional AMQPS via `NuropbRMQTls.connect` / `Transport` (`tls-verify-full` PEM)
 - Lean ↔ Python interop, Lean AMQPS, Lean IO coverage, and Lean reply-forge 403
   smokes (`scripts/smoke_interop.sh`, `smoke_lean_amqps.sh`,
-  `smoke_lean_coverage.sh`, `smoke_lean_reply_acl.sh`)
-- CI jobs: `lean`, `lean-interop` (includes coverage), `lean-amqps`
+  `smoke_lean_coverage.sh`, `smoke_lean_reply_acl.sh`, `smoke_lean_mtls.sh`)
+- CI jobs: `lean`, `lean-interop` (includes coverage + 403), `lean-amqps`,
+  `lean-mtls` (mTLS PEM + SASL `EXTERNAL`; not required to merge)
+- Lean SASL `EXTERNAL` when the broker offers it and a client PEM pair is set
 - Proof hygiene: channel `allowsOps`, `Reachable` witnesses, `wellFormedPark`,
   `Ids.validId`, TLS oracle vector; field decode of DLQ `x-death` arrays
 - Python unit holes: `ConnectionBlockedError` inject, `NackDelivery`,
@@ -22,8 +24,7 @@ All notable changes to this project are documented in this file.
 ### Honesty
 
 - Park republish remains at-least-once (not exactly-once)
-- Default `lake build` does not link OpenSSL; PKCS#12 / mTLS / SASL `EXTERNAL`
-  in Lean stay residual
+- Default `lake build` does not link OpenSSL; PKCS#12 in Lean stays residual
 - Lean `authorize_func`, RS256/ES256, HMAC hardness, and RabbitMQ regex ACL
   stay residual
 

@@ -6,7 +6,8 @@ manual: [`specs/lean/CORRESPONDENCE.md`](../../specs/lean/CORRESPONDENCE.md).
 
 Commands below match [CONTRIBUTING](../../CONTRIBUTING.md) and
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). The CI job set is
-the release floor; AMQPS mTLS is an extra local (and optional CI residual) lane.
+the release floor; AMQPS mTLS (`lean-mtls`) is an extra CI lane, not required
+to merge.
 
 ## Layers
 
@@ -22,7 +23,7 @@ the release floor; AMQPS mTLS is an extra local (and optional CI residual) lane.
 | Integration | Real RabbitMQ AMQP 0-9-1 behaviour | `pytest -m integration` |
 | AMQPS | `tls-verify-full` PLAIN over TLS | `tests/integration/test_amqps_smoke.py` |
 | Lean AMQPS | Lean `NuropbRMQTls.connect` (OpenSSL; not default `lake build`) | `./scripts/smoke_lean_amqps.sh` |
-| mTLS | Client cert + SASL `EXTERNAL` (opt-in) | `tests/integration/test_amqps_mtls_smoke.py` |
+| mTLS | Client cert + SASL `EXTERNAL` | `tests/integration/test_amqps_mtls_smoke.py`; `./scripts/smoke_lean_mtls.sh` |
 | Example smoke | Vanilla, mesh, LangChain, LangGraph against a broker | `./scripts/smoke_examples.sh` |
 | Lean↔Python interop | Shared `nr.interop.*` hello + mesh both directions | `./scripts/smoke_interop.sh` |
 | Lean IO coverage | Claims mesh, events, DLQ timeout, park/fail-fast reconnect | `./scripts/smoke_lean_coverage.sh` |
@@ -51,7 +52,7 @@ live broker checks, not cryptographic hardness.
 | JWT / claims | Missing, bad sig, expired, `jti`≠corr, method mismatch | same Pattern negatives + Lean `tryAuth_*` | `test_context.py`, golden `test_jwt_golden.py`, live mesh claims |
 | Reply forge | Client publish to another `nr.reply.*` via default exchange | `acl_negatives.smt2`; Lean `forgeDenied` | `test_acl.py`; live `channel.close` **403** on `amq.default` (Python + `smoke_lean_reply_acl.sh`) |
 | Error oracle | Distinct fields for timeout vs other mesh errors | (shape only; not SpeC++) | `test_anti_enumeration.py` |
-| TLS | Skip verify; wrong hostname | outside Lean | AMQPS `VERIFY_FULL`; `test_amqps_wrong_hostname_rejected`; mTLS + `EXTERNAL` opt-in |
+| TLS | Skip verify; wrong hostname | outside Lean | AMQPS `VERIFY_FULL`; `test_amqps_wrong_hostname_rejected`; mTLS + `EXTERNAL` (`lean-mtls`) |
 | Durability | Non-persistent publish on durable profile | `queue_profile_negatives.smt2` | `test_queue_profile.py` + live quorum RPC |
 
 ## What this regime does not claim
@@ -66,8 +67,8 @@ live broker checks, not cryptographic hardness.
 
 Broker: Docker `rabbitmq:3-management` on `5672`/`15672` (wait until **healthy**,
 not merely TCP accept). TLS: `scripts/gen_amqps_certs.sh` plus
-`scripts/rabbitmq-amqps.ci.conf` on `5671`. mTLS: verify-peer conf, plugin
-`rabbitmq_auth_mechanism_ssl`, user matching client cert CN.
+`scripts/rabbitmq-amqps.ci.conf` on `5671`. mTLS: `scripts/ci_start_amqps_mtls_broker.sh`
+(verify-peer, plugin `rabbitmq_auth_mechanism_ssl`, user matching client cert CN).
 
 ```bash
 uv lock --check
@@ -91,5 +92,6 @@ NUROPB_RMQ_TLS=1 NUROPB_RMQ_PORT=5671 NUROPB_RMQ_CA_FILE=dev/amqps/ca.pem \
 ./scripts/smoke_lean_coverage.sh
 ./scripts/smoke_lean_reply_acl.sh
 ./scripts/smoke_lean_amqps.sh
+./scripts/smoke_lean_mtls.sh
 uv build && uvx twine check dist/*
 ```

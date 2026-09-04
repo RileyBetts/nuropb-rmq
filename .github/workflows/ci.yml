@@ -151,6 +151,50 @@ jobs:
           NUROPB_RMQ_SERVER_HOSTNAME: localhost
         run: ./scripts/smoke_lean_amqps.sh
 
+  lean-mtls:
+    name: Lean AMQPS mTLS + SASL EXTERNAL
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: .
+          build: false
+          test: false
+          lint: false
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install OpenSSL headers
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Sync (dev)
+        run: uv sync --dev
+      - name: Generate AMQPS certs
+        run: ./scripts/gen_amqps_certs.sh
+      - name: Start RabbitMQ with mTLS
+        run: ./scripts/ci_start_amqps_mtls_broker.sh
+      - name: Lean mTLS smoke
+        env:
+          NUROPB_RMQ_TLS: "1"
+          NUROPB_RMQ_HOST: 127.0.0.1
+          NUROPB_RMQ_PORT: "5671"
+          NUROPB_RMQ_CA_FILE: ${{ github.workspace }}/dev/amqps/ca.pem
+          NUROPB_RMQ_CERT_FILE: ${{ github.workspace }}/dev/amqps/client.pem
+          NUROPB_RMQ_KEY_FILE: ${{ github.workspace }}/dev/amqps/client.key
+          NUROPB_RMQ_SERVER_HOSTNAME: localhost
+        run: ./scripts/smoke_lean_mtls.sh
+      - name: Python mTLS smoke
+        env:
+          NUROPB_RMQ_MTLS: "1"
+          NUROPB_RMQ_TLS: "1"
+          NUROPB_RMQ_HOST: 127.0.0.1
+          NUROPB_RMQ_PORT: "5671"
+          NUROPB_RMQ_CA_FILE: ${{ github.workspace }}/dev/amqps/ca.pem
+          NUROPB_RMQ_CERT_FILE: ${{ github.workspace }}/dev/amqps/client.pem
+          NUROPB_RMQ_KEY_FILE: ${{ github.workspace }}/dev/amqps/client.key
+          NUROPB_RMQ_SERVER_HOSTNAME: localhost
+        run: uv run pytest -q tests/integration/test_amqps_mtls_smoke.py
+
   lean-interop:
     name: Lean↔Python interop examples
     runs-on: ubuntu-latest
