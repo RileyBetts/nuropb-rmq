@@ -9,7 +9,8 @@ import NuropbRmq.Pattern.Claims
 
 /-!
 Executable HS256 JWT compact verify (correspondence with PyJWT + AuthConfig).
-RS256/ES256 and HMAC hardness are out of scope.
+RS256/ES256 verify lives on `NuropbRMQTls` (OpenSSL FFI). HMAC hardness is
+out of scope.
 -/
 
 namespace NuropbRmq.Pattern.Jwt

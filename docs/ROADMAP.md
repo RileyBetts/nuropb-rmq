@@ -6,6 +6,7 @@ version.
 
 ## Done on `development`
 
+- Lean RS256/ES256 verify on `NuropbRMQTls` (OpenSSL FFI + PyJWT goldens)
 - Lean `authorize_func`: opaque `authorizeOk` on `tryAuth`, optional RPC hook
   after HS256 (deny/allow in Lean claims smoke)
 - Dual runtime: Lean POSIX client (`import NuropbRMQ`) shares SpeC++ / Lean
@@ -14,7 +15,8 @@ version.
 - mTLS PEM + PKCS#12 + SASL `EXTERNAL` (`NuropbRMQTls.connect` + `selectSasl`;
   still not default `lake build`)
 - Smokes: `scripts/smoke_interop.sh`, `smoke_lean_amqps.sh`,
-  `smoke_lean_coverage.sh`, `smoke_lean_mtls.sh`, `smoke_lean_reply_acl.sh`
+  `smoke_lean_coverage.sh`, `smoke_lean_mtls.sh`, `smoke_lean_reply_acl.sh`,
+  `smoke_lean_jwt_asymmetric.sh`
   (claims, events, DLQ, park/fail-fast reconnect, live `amq.default` 403,
   mTLS EXTERNAL)
 - CI: `lean`, `lean-interop` (includes reply-forge 403), `lean-amqps`,
@@ -26,7 +28,7 @@ _(empty — Lean IO residuals below)_
 
 ## Not claimed
 
-- HMAC/SHA-256 hardness; RS256/ES256
+- HMAC/SHA-256 hardness
 - RabbitMQ regex ACL engine (prefixes + live `amq.default` 403 in Python and Lean)
 - Park **exactly-once** server execution (at-least-once)
 - LangChain / LangGraph in Lean (examples stay Python-only)

@@ -7,6 +7,7 @@ import NuropbRMQ.Config
 import NuropbRMQ.Socket
 import NuropbRMQ.Transport
 import NuropbRMQ.Connection
+import NuropbRMQTls.Jwt
 
 /-!
 Optional AMQPS (tls-verify-full). Build: `lake build NuropbRMQTls`

@@ -122,7 +122,8 @@ targets 1.0.0):
 - `specs/lean/CORRESPONDENCE.md` re-audited for the tag
 
 mTLS / SASL `EXTERNAL` (PEM or PKCS#12) is Lean + Python (`lean-mtls`, not
-required to merge). Crypto-hardness and RS256/ES256 stay residual.
+required to merge). RS256/ES256 verify is `NuropbRMQTls` (OpenSSL). HMAC
+hardness stays residual.
 
 Celery parity, LangGraph-in-core, `basic.get` / Tx / purge stay out of tree.
 

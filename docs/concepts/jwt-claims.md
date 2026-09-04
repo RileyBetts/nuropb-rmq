@@ -49,6 +49,8 @@ server = RpcServer(cfg, queue="orders", handler=handler, auth=auth)
 ```
 
 - Provide `jwt_secret` (HS*) and/or `jwt_public_key` (RS*/ES*).
+- Lean HS256 is `Pattern.Jwt.verifyHs256` (libc). RS256/ES256 verify is
+  `NuropbRMQ.Tls.verifyRs256` / `verifyEs256` (`import NuropbRMQTls`; OpenSSL).
 - Optional `authorize_func(claims, method, params) -> bool` for app policy after
   signature and binding checks. Lean `AuthConfig.authorize` is the same hook
   after HS256 (`false` or exception → `UNAUTHORIZED`).

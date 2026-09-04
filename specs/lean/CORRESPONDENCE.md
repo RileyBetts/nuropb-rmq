@@ -21,7 +21,7 @@ client Transport split and coverage smokes.
 | Lean IO runtime | **Aligned** | `NuropbRMQ.connect` / `connectWith` + `Transport`; `expectMethod` queues `BASIC_DELIVER`. Coverage: `./scripts/smoke_lean_coverage.sh`. |
 | TLS material / SASL EXTERNAL | **Aligned** | Lean `selectSasl` prefers `EXTERNAL` when a client PEM pair or PKCS#12 bag is set; CI `lean-mtls` (plugin + CN mapping). Oracle TLS SM vector `sm_trace_tls.txt`. |
 
-Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; RabbitMQ regex engine / HA; park **exactly-once** server execution.
+Residuals (documented, not silent): HMAC/SHA256 **hardness**; RabbitMQ regex engine / HA; park **exactly-once** server execution.
 
 ## Modules
 
@@ -158,6 +158,8 @@ Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; Rabbi
 | `tryAuth_reject_*`, `tryAuth_ok` | `test_missing_claims_*`, `test_pbt_jti_must_match`, `test_authorize_func_denied` |
 
 JWT HS256 compact verify is executable in `Pattern.Jwt` (not a PRF proof).
+RS256/ES256 compact verify is `NuropbRMQ.Tls.verifyRs256` / `verifyEs256`
+(OpenSSL FFI; PyJWT goldens in `test_jwt_golden.py`).
 Broker ACL profiles are executable in `Pattern.Acl` (not the broker binary).
 Live `test_reply_acl_amqp.py` and `scripts/smoke_lean_reply_acl.sh` use RabbitMQ
 `write` on `amq.default` (default-exchange RPC) and wait for `channel.close` 403
