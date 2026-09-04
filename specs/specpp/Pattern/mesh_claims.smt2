@@ -17,6 +17,7 @@
 (declare-const jwt_method String)
 (declare-const jwt_valid_sig Bool)
 (declare-const jwt_expired Bool)
+(declare-const jwt_authorize_ok Bool)
 (declare-const claims_present Bool)
 (declare-const method_is_public Bool)
 (declare-const auth_required Bool)
@@ -38,7 +39,8 @@
   (ite jwt_expired AuthReject
   (ite (not (= jwt_jti correlation_id)) AuthReject
   (ite (not (= jwt_method method_name)) AuthReject
-       AuthOk))))))))
+  (ite (not jwt_authorize_ok) AuthReject
+       AuthOk)))))))))
 
 ; Positive world: namespaced bind + verified claims on auth-required method
 (assert (= service_name "orders"))
@@ -49,6 +51,7 @@
 (assert (= jwt_method "orders.ping"))
 (assert jwt_valid_sig)
 (assert (not jwt_expired))
+(assert jwt_authorize_ok)
 (assert claims_present)
 (assert (not method_is_public))
 (assert (= bind_outcome BindOk))

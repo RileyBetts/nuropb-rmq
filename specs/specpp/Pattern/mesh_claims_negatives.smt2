@@ -16,6 +16,7 @@
 (declare-const jwt_method String)
 (declare-const jwt_valid_sig Bool)
 (declare-const jwt_expired Bool)
+(declare-const jwt_authorize_ok Bool)
 (declare-const claims_present Bool)
 (declare-const method_is_public Bool)
 (declare-const auth_outcome AuthOutcome)
@@ -34,7 +35,8 @@
   (ite jwt_expired AuthReject
   (ite (not (= jwt_jti correlation_id)) AuthReject
   (ite (not (= jwt_method method_name)) AuthReject
-       AuthOk))))))))
+  (ite (not jwt_authorize_ok) AuthReject
+       AuthOk)))))))))
 
 ; Forced contradictions
 (assert (= service_name "orders"))

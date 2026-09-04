@@ -80,15 +80,25 @@ theorem tryAuth_reject_method_mismatch (i : AuthInput)
     tryAuth i = .authReject := by
   simp [tryAuth, hpub, hpres, hsig, hexp, hjti, hmeth]
 
+theorem tryAuth_reject_authorize_denied (i : AuthInput)
+    (hpub : i.methodIsPublic = false) (hpres : i.claimsPresent = true)
+    (hsig : i.validSig = true) (hexp : i.expired = false)
+    (hjti : (i.jti == i.correlationId) = true)
+    (hmeth : (i.jwtMethod == i.rpcMethod) = true)
+    (hauth : i.authorizeOk = false) :
+    tryAuth i = .authReject := by
+  simp [tryAuth, hpub, hpres, hsig, hexp, hjti, hmeth, hauth]
+
 /-! ### Claims AuthOk -/
 
 theorem tryAuth_ok (i : AuthInput)
     (hpub : i.methodIsPublic = false) (hpres : i.claimsPresent = true)
     (hsig : i.validSig = true) (hexp : i.expired = false)
     (hjti : (i.jti == i.correlationId) = true)
-    (hmeth : (i.jwtMethod == i.rpcMethod) = true) :
+    (hmeth : (i.jwtMethod == i.rpcMethod) = true)
+    (hauth : i.authorizeOk = true) :
     tryAuth i = .authOk := by
-  simp [tryAuth, hpub, hpres, hsig, hexp, hjti, hmeth]
+  simp [tryAuth, hpub, hpres, hsig, hexp, hjti, hmeth, hauth]
 
 theorem authRequired_iff_not_public (i : AuthInput) :
     authRequired i = !i.methodIsPublic := rfl
@@ -117,6 +127,20 @@ theorem tryAuth_missing_reject :
         correlationId := "abc"
         jwtMethod := "orders.ping"
         rpcMethod := "orders.ping" } = .authReject := by
+  native_decide
+
+/-- Concrete fail-closed: `authorize_func` denied after bind. -/
+theorem tryAuth_authorize_denied :
+    tryAuth
+      { methodIsPublic := false
+        claimsPresent := true
+        validSig := true
+        expired := false
+        jti := "abc"
+        correlationId := "abc"
+        jwtMethod := "orders.ping"
+        rpcMethod := "orders.ping"
+        authorizeOk := false } = .authReject := by
   native_decide
 
 end NuropbRmq.Pattern

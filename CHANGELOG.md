@@ -16,6 +16,8 @@ All notable changes to this project are documented in this file.
   `lean-mtls` (mTLS PEM + SASL `EXTERNAL`; not required to merge)
 - Lean SASL `EXTERNAL` when the broker offers it and a client PEM pair or
   PKCS#12 bag is set (`NuropbRMQTls` / OpenSSL FFI only)
+- Lean `authorize_func`: opaque `authorizeOk` on `tryAuth`, optional RPC hook
+  after HS256 (`claims → method → params → Bool`); deny/allow in Lean claims smoke
 - Proof hygiene: channel `allowsOps`, `Reachable` witnesses, `wellFormedPark`,
   `Ids.validId`, TLS oracle vector; field decode of DLQ `x-death` arrays
 - Python unit holes: `ConnectionBlockedError` inject, `NackDelivery`,
@@ -27,8 +29,7 @@ All notable changes to this project are documented in this file.
 - Park republish remains at-least-once (not exactly-once)
 - Default `lake build` does not link OpenSSL (PKCS#12 / mTLS stay on
   `NuropbRMQTls` only)
-- Lean `authorize_func`, RS256/ES256, HMAC hardness, and RabbitMQ regex ACL
-  stay residual
+- RS256/ES256, HMAC hardness, and RabbitMQ regex ACL stay residual
 
 ## 1.0.0 — 2026-09-01
 

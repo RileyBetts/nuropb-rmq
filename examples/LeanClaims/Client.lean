@@ -33,5 +33,18 @@ def main : IO Unit := do
     throw (IO.userError s!"expected UNAUTHORIZED without claims, last={last}")
   let ping ← RpcClient.request cli "orders.ping" "orders.ping" (.obj [])
     (some "corr-id-01") Examples.Common.MESH_EXCHANGE (some NuropbRmq.Pattern.Jwt.goldenToken)
-  IO.println s!"claims: ok unauthorized then {encodeJson ping}"
+  let mut authDenied := false
+  let mut authLast := ""
+  try
+    let _ ← RpcClient.request cli "orders.ping" "orders.ping"
+      (.obj [("deny", .bool true)]) (some "corr-id-01")
+      Examples.Common.MESH_EXCHANGE (some NuropbRmq.Pattern.Jwt.goldenToken)
+    authLast := "authorize hook allowed deny=true"
+  catch e =>
+    authLast := toString e
+    authDenied := authLast.contains "UNAUTHORIZED" || authLast.contains "-33100"
+      || authLast.contains "unauthorized"
+  unless authDenied do
+    throw (IO.userError s!"expected UNAUTHORIZED from authorize hook, last={authLast}")
+  IO.println s!"claims: ok unauthorized then {encodeJson ping} then authorize-deny"
   Session.close sess
