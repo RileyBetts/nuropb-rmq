@@ -18,6 +18,9 @@ namespace NuropbRMQ.Tls
 @[extern "nuropb_tls_connect"]
 opaque connectSsl (fd : UInt32) (hostname caPem certPem keyPem : @& String) : IO UInt64
 
+@[extern "nuropb_tls_connect_pkcs12"]
+opaque connectSslPkcs12 (fd : UInt32) (hostname caPem p12Path password : @& String) : IO UInt64
+
 @[extern "nuropb_tls_send"]
 opaque sendSsl (handle : UInt64) (buf : @& ByteArray) : IO Unit
 
@@ -36,11 +39,19 @@ def readFileOrEmpty (path : Option String) : IO String := do
   | some p => IO.FS.readFile p
 
 /-- TCP then TLS handshake with peer hostname verification. -/
-def wrapFd (fd : UInt32) (hostname : String) (caFile certFile keyFile : Option String) : IO UInt64 := do
-  let ca ← readFileOrEmpty caFile
-  let cert ← readFileOrEmpty certFile
-  let key ← readFileOrEmpty keyFile
-  connectSsl fd hostname ca cert key
+def wrapFd (fd : UInt32) (hostname : String) (cfg : ConnectionConfig) : IO UInt64 := do
+  if cfg.pkcs12File.isSome && (cfg.certFile.isSome || cfg.keyFile.isSome) then
+    throw (IO.userError "pkcs12: conflicts with PEM cert")
+  let ca ← readFileOrEmpty cfg.caFile
+  match cfg.pkcs12File with
+  | some p =>
+    -- Bind before the `@& String` extern so GC cannot collect the password.
+    let pass := cfg.pkcs12Password.getD ""
+    connectSslPkcs12 fd hostname ca p pass
+  | none =>
+    let cert ← readFileOrEmpty cfg.certFile
+    let key ← readFileOrEmpty cfg.keyFile
+    connectSsl fd hostname ca cert key
 
 def tlsTransport (fd : UInt32) (handle : UInt64) : Transport where
   send := fun buf => sendSsl handle buf
@@ -56,7 +67,7 @@ def tlsTransport (fd : UInt32) (handle : UInt64) : Transport where
 def connect (cfg : ConnectionConfig := {}) : IO AmqpConnection := do
   let fd ← Socket.connect cfg.host cfg.port
   let hn := cfg.serverHostname.getD cfg.host
-  let h ← wrapFd fd hn cfg.caFile cfg.certFile cfg.keyFile
+  let h ← wrapFd fd hn cfg
   connectWith { cfg with tls := true } (tlsTransport fd h) true fd
 
 end NuropbRMQ.Tls

@@ -42,6 +42,7 @@ export NUROPB_RMQ_CA_FILE="${NUROPB_RMQ_CA_FILE:-$ROOT/dev/amqps/ca.pem}"
 export NUROPB_RMQ_CERT_FILE="${NUROPB_RMQ_CERT_FILE:-$ROOT/dev/amqps/client.pem}"
 export NUROPB_RMQ_KEY_FILE="${NUROPB_RMQ_KEY_FILE:-$ROOT/dev/amqps/client.key}"
 export NUROPB_RMQ_SERVER_HOSTNAME="${NUROPB_RMQ_SERVER_HOSTNAME:-localhost}"
+unset NUROPB_RMQ_PKCS12_FILE NUROPB_RMQ_PKCS12_PASSWORD
 
 out="$("$ROOT/.lake/build/bin/lean_amqps_mtls")"
 echo "$out"
@@ -50,3 +51,22 @@ if [[ "$out" != *"amqps-mtls: ok"* ]]; then
   exit 1
 fi
 echo "PASS lean_amqps_mtls"
+
+# Second pass: same CN material as PKCS#12 (OpenSSL FFI only; not default lake).
+P12="${NUROPB_RMQ_PKCS12_FILE:-$ROOT/dev/amqps/client.p12}"
+P12_TMP="${P12}.tmp"
+openssl pkcs12 -export \
+  -inkey "$ROOT/dev/amqps/client.key" \
+  -in "$ROOT/dev/amqps/client.pem" \
+  -out "$P12_TMP" \
+  -passout pass:
+mv -f "$P12_TMP" "$P12"
+unset NUROPB_RMQ_CERT_FILE NUROPB_RMQ_KEY_FILE NUROPB_RMQ_PKCS12_PASSWORD
+export NUROPB_RMQ_PKCS12_FILE="$P12"
+out="$("$ROOT/.lake/build/bin/lean_amqps_mtls")"
+echo "$out"
+if [[ "$out" != *"amqps-mtls: ok"* ]]; then
+  echo "FAIL lean_amqps_mtls pkcs12" >&2
+  exit 1
+fi
+echo "PASS lean_amqps_mtls pkcs12"

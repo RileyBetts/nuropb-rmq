@@ -14,7 +14,8 @@ All notable changes to this project are documented in this file.
   `smoke_lean_coverage.sh`, `smoke_lean_reply_acl.sh`, `smoke_lean_mtls.sh`)
 - CI jobs: `lean`, `lean-interop` (includes coverage + 403), `lean-amqps`,
   `lean-mtls` (mTLS PEM + SASL `EXTERNAL`; not required to merge)
-- Lean SASL `EXTERNAL` when the broker offers it and a client PEM pair is set
+- Lean SASL `EXTERNAL` when the broker offers it and a client PEM pair or
+  PKCS#12 bag is set (`NuropbRMQTls` / OpenSSL FFI only)
 - Proof hygiene: channel `allowsOps`, `Reachable` witnesses, `wellFormedPark`,
   `Ids.validId`, TLS oracle vector; field decode of DLQ `x-death` arrays
 - Python unit holes: `ConnectionBlockedError` inject, `NackDelivery`,
@@ -24,7 +25,8 @@ All notable changes to this project are documented in this file.
 ### Honesty
 
 - Park republish remains at-least-once (not exactly-once)
-- Default `lake build` does not link OpenSSL; PKCS#12 in Lean stays residual
+- Default `lake build` does not link OpenSSL (PKCS#12 / mTLS stay on
+  `NuropbRMQTls` only)
 - Lean `authorize_func`, RS256/ES256, HMAC hardness, and RabbitMQ regex ACL
   stay residual
 

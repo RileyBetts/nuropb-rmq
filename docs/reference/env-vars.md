@@ -47,6 +47,8 @@ provider key; `--smoke` does not.
 | `NUROPB_RMQ_CA_FILE` | CA PEM path |
 | `NUROPB_RMQ_CERT_FILE` | Client cert PEM (mTLS) |
 | `NUROPB_RMQ_KEY_FILE` | Client key PEM (mTLS) |
+| `NUROPB_RMQ_PKCS12_FILE` | Client PKCS#12 bag (Lean `NuropbRMQTls` only; exclusive with PEM cert/key) |
+| `NUROPB_RMQ_PKCS12_PASSWORD` | PKCS#12 password (optional) |
 | `NUROPB_RMQ_SERVER_HOSTNAME` | TLS hostname / SNI (often `localhost` for local harness) |
 
 See [Local AMQPS harness](../guides/amqps-local.md). Lean mTLS:
