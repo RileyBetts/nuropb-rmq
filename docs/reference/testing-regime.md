@@ -50,7 +50,7 @@ live broker checks, not cryptographic hardness.
 | Reconnect | Fail-fast vs park mix-up; epoch not monotonic | `phase2_reconnect_*`, `park_reconnect_*` | session PBTs + live park/fail-fast/mesh rebind |
 | Mesh bind | Bind outside `<service>.*` | `mesh_claims_negatives.smt2` | `test_mesh.py`; broker still required in prod |
 | JWT / claims | Missing, bad sig, expired, `jti`≠corr, method mismatch, `authorizeOk` false | same Pattern negatives + Lean `tryAuth_*` | `test_context.py`, golden `test_jwt_golden.py` (HS256 + RS256/ES256), live mesh claims + authorize deny; Lean RS/ES via `smoke_lean_jwt_asymmetric.sh` |
-| Reply forge | Client publish to another `nr.reply.*` via default exchange | `acl_negatives.smt2`; Lean `forgeDenied` | `test_acl.py`; live `channel.close` **403** on `amq.default` (Python + `smoke_lean_reply_acl.sh`) |
+| Reply forge | Client publish to another `nr.reply.*` via default exchange | `acl_negatives.smt2`; Lean `forgeDenied` + regex agree | `test_acl.py`; live `channel.close` **403** on `amq.default` (prefix + narrower regex; Python + Lean smokes) |
 | Error oracle | Distinct fields for timeout vs other mesh errors | (shape only; not SpeC++) | `test_anti_enumeration.py` |
 | TLS | Skip verify; wrong hostname | outside Lean | AMQPS `VERIFY_FULL`; `test_amqps_wrong_hostname_rejected`; mTLS + `EXTERNAL` (`lean-mtls`) |
 | Durability | Non-persistent publish on durable profile | `queue_profile_negatives.smt2` | `test_queue_profile.py` + live quorum RPC |
@@ -58,7 +58,7 @@ live broker checks, not cryptographic hardness.
 ## What this regime does not claim
 
 - HMAC/SHA-256 **hardness**
-- RabbitMQ’s real regex ACL engine (Lean/Python prefixes; live 403 uses `amq.default` write)
+- Full RabbitMQ regex ACL engine / HA (scoped `matchesRegex` + live 403 are in tree)
 - Exactly-once server execution under park-and-retry (at-least-once)
 - Timing indistinguishability of errors
 - Throughput (`-m benchmark` is optional, not CI)

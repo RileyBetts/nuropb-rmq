@@ -79,9 +79,10 @@ def _mgmt(method: str, path: str, body: dict | None = None) -> None:
         pytest.skip(f"management API {method} {path} failed: {exc.code}")
 
 
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_reply_publish_restricted_forge_denied_service_allowed() -> None:
+async def _forge_denied_service_allowed(
+    client_perms: dict[str, str],
+    svc_perms: dict[str, str],
+) -> None:
     if _mgmt_base() is None:
         pytest.skip("RabbitMQ management API not listening on 15672")
     suffix = uuid.uuid4().hex[:8]
@@ -92,22 +93,8 @@ async def test_reply_publish_restricted_forge_denied_service_allowed() -> None:
 
     _mgmt("PUT", f"/api/users/{client_user}", {"password": pw, "tags": ""})
     _mgmt("PUT", f"/api/users/{svc_user}", {"password": pw, "tags": ""})
-    # Client: mesh write only — no amq.default, so default-exchange forge is 403.
-    _mgmt(
-        "PUT",
-        f"/api/permissions/%2F/{client_user}",
-        {"configure": r"^nr\.reply\.", "write": r"^nr\.mesh", "read": r"^nr\.reply\."},
-    )
-    # Service: named prefixes plus amq.default so RPC replies via reply_to work.
-    _mgmt(
-        "PUT",
-        f"/api/permissions/%2F/{svc_user}",
-        {
-            "configure": r"^nr\.reply\.",
-            "write": r"^nr\.mesh.*|^nr\.reply\..*|^nr\.dlx\..*|^amq\.default$",
-            "read": r"^nr\.reply\.",
-        },
-    )
+    _mgmt("PUT", f"/api/permissions/%2F/{client_user}", client_perms)
+    _mgmt("PUT", f"/api/permissions/%2F/{svc_user}", svc_perms)
 
     host = os.environ.get("NUROPB_RMQ_HOST", "127.0.0.1")
     port = _amqp_port()
@@ -167,3 +154,31 @@ async def test_reply_publish_restricted_forge_denied_service_allowed() -> None:
         await svc.basic_publish(ch, b"ok", routing_key=victim, mandatory=True, confirm=True)
     finally:
         await svc.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_reply_publish_restricted_forge_denied_service_allowed() -> None:
+    await _forge_denied_service_allowed(
+        {"configure": r"^nr\.reply\.", "write": r"^nr\.mesh", "read": r"^nr\.reply\."},
+        {
+            "configure": r"^nr\.reply\.",
+            "write": r"^nr\.mesh.*|^nr\.reply\..*|^nr\.dlx\..*|^amq\.default$",
+            "read": r"^nr\.reply\.",
+        },
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_reply_acl_regex_narrower_than_prefix() -> None:
+    """Broker perms are real regex, narrower than `nr.reply.` prefix, still 403."""
+    hex8 = r"^nr\.reply\.[0-9a-f]{8}"
+    await _forge_denied_service_allowed(
+        {"configure": hex8, "write": r"^nr\.mesh$", "read": hex8},
+        {
+            "configure": hex8,
+            "write": rf"{hex8}|^nr\.mesh$|^amq\.default$",
+            "read": hex8,
+        },
+    )

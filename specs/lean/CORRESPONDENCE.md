@@ -16,12 +16,12 @@ client Transport split and coverage smokes.
 | Session Phase 1b | **Aligned** | First-wins / reply-open register gate; Lean `Ids.validId` charset theorems (Python `validate_id`). |
 | Session Phase 2 | **Aligned** | Fail-fast `onDisconnect` clears pending; `onDisconnectPark` + `wellFormedPark` (pending may survive the reply-queue gap); `onReconnect` keeps count. |
 | Pattern mesh/claims | **Aligned** | `tryAuth` decision tree plus executable HS256 `Pattern.Jwt.verifyHs256` and opaque `authorizeOk` / Lean IO `AuthConfig.authorize`. Lean IO claims smoke uses `goldenToken` plus deny/allow. |
-| Pattern ACL | **Aligned** | `Pattern.Acl` prefix profiles; Python `patterns/acl.py`; CI management-API test. |
+| Pattern ACL | **Aligned** | `Pattern.Acl` prefix + scoped `matchesRegex`; Python `patterns/acl.py`; live prefix and narrower-regex 403. |
 | Config SpeC++ | **Aligned** | Unchanged. |
 | Lean IO runtime | **Aligned** | `NuropbRMQ.connect` / `connectWith` + `Transport`; `expectMethod` queues `BASIC_DELIVER`. Coverage: `./scripts/smoke_lean_coverage.sh`. |
 | TLS material / SASL EXTERNAL | **Aligned** | Lean `selectSasl` prefers `EXTERNAL` when a client PEM pair or PKCS#12 bag is set; CI `lean-mtls` (plugin + CN mapping). Oracle TLS SM vector `sm_trace_tls.txt`. |
 
-Residuals (documented, not silent): HMAC/SHA256 **hardness**; RabbitMQ regex engine / HA; park **exactly-once** server execution.
+Residuals (documented, not silent): HMAC/SHA256 **hardness**; full RabbitMQ regex engine / HA; park **exactly-once** server execution.
 
 ## Modules
 
@@ -160,10 +160,12 @@ Residuals (documented, not silent): HMAC/SHA256 **hardness**; RabbitMQ regex eng
 JWT HS256 compact verify is executable in `Pattern.Jwt` (not a PRF proof).
 RS256/ES256 compact verify is `NuropbRMQ.Tls.verifyRs256` / `verifyEs256`
 (OpenSSL FFI; PyJWT goldens in `test_jwt_golden.py`).
-Broker ACL profiles are executable in `Pattern.Acl` (not the broker binary).
-Live `test_reply_acl_amqp.py` and `scripts/smoke_lean_reply_acl.sh` use RabbitMQ
-`write` on `amq.default` (default-exchange RPC) and wait for `channel.close` 403
-— not a routing-key match.
+Broker ACL profiles are executable in `Pattern.Acl` (prefix + scoped
+`matchesRegex`; not the broker binary / HA).
+Live `test_reply_acl_amqp.py`, `scripts/smoke_lean_reply_acl.sh`, and
+`smoke_lean_reply_acl_regex.sh` use RabbitMQ `write` on `amq.default`
+(default-exchange RPC) and wait for `channel.close` 403 — not a routing-key
+match. The regex smoke uses narrower-than-prefix configure/write/read strings.
 Python also refuses empty method / `..` segments beyond the SpeC++ prefix core.
 
 ## Session Phase 2 (Reconnect + DeadLetterTimeout)

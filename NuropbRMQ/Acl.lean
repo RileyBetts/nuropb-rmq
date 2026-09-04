@@ -7,7 +7,10 @@ import NuropbRmq.Pattern.Acl
 
 namespace NuropbRMQ.Acl
 
-export NuropbRmq.Pattern.Acl (Perms matchesPrefix allowed canConfigure canPublish canRead
-  replyPublishRestrictedClient replyPublishRestrictedService meshBindNamespaced)
+export NuropbRmq.Pattern.Acl (Perms matchesPrefix matchesRegex allowed allowedRegex
+  canConfigure canPublish canRead canConfigureRegex canPublishRegex canReadRegex
+  replyPublishRestrictedClient replyPublishRestrictedService meshBindNamespaced
+  replyPublishRestrictedClientRe replyPublishRestrictedServiceRe meshBindNamespacedRe
+  replyHex8)
 
 end NuropbRMQ.Acl
