@@ -165,6 +165,7 @@ jobs:
           --health-retries 10
         ports:
           - 5672:5672
+          - 15672:15672
     steps:
       - uses: actions/checkout@v4
       - uses: leanprover/lean-action@v1
@@ -186,3 +187,9 @@ jobs:
           NUROPB_RMQ_HOST: 127.0.0.1
           NUROPB_RMQ_PORT: "5672"
         run: ./scripts/smoke_lean_coverage.sh
+      - name: Lean reply-forge 403
+        env:
+          NUROPB_RMQ_HOST: 127.0.0.1
+          NUROPB_RMQ_PORT: "5672"
+          NUROPB_RMQ_MGMT_PORT: "15672"
+        run: ./scripts/smoke_lean_reply_acl.sh

@@ -111,6 +111,11 @@ lean_exe interop_mesh_client where
   srcDir := "examples"
   root := `InteropMesh.Client
 
+/-- Live reply-forge 403 smoke. POSIX only (no OpenSSL). -/
+lean_exe lean_reply_acl where
+  srcDir := "examples"
+  root := `LeanReplyAcl.Hello
+
 /-- tls-verify-full smoke. Not a default target. -/
 lean_exe lean_amqps_hello where
   srcDir := "examples"
