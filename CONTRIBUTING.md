@@ -121,8 +121,8 @@ targets 1.0.0):
   lane — a regression floor, not a vanity target)
 - `specs/lean/CORRESPONDENCE.md` re-audited for the tag
 
-mTLS / SASL `EXTERNAL` is Lean + Python (`lean-mtls`, not required to merge).
-PKCS#12 in Lean, crypto-hardness, and RS256/ES256 stay residual.
+mTLS / SASL `EXTERNAL` (PEM or PKCS#12) is Lean + Python (`lean-mtls`, not
+required to merge). Crypto-hardness and RS256/ES256 stay residual.
 
 Celery parity, LangGraph-in-core, `basic.get` / Tx / purge stay out of tree.
 

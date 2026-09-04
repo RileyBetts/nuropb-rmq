@@ -9,8 +9,8 @@ version.
 - Dual runtime: Lean POSIX client (`import NuropbRMQ`) shares SpeC++ / Lean
   kernels with Python; no extraction either way
 - PLAIN mesh + optional AMQPS (`NuropbRMQTls.connect`, tls-verify-full PEM)
-- mTLS PEM + SASL `EXTERNAL` (`NuropbRMQTls.connect` + `selectSasl`; still
-  not default `lake build`)
+- mTLS PEM + PKCS#12 + SASL `EXTERNAL` (`NuropbRMQTls.connect` + `selectSasl`;
+  still not default `lake build`)
 - Smokes: `scripts/smoke_interop.sh`, `smoke_lean_amqps.sh`,
   `smoke_lean_coverage.sh`, `smoke_lean_mtls.sh`, `smoke_lean_reply_acl.sh`
   (claims, events, DLQ, park/fail-fast reconnect, live `amq.default` 403,
@@ -20,7 +20,7 @@ version.
 
 ## Next (Lean IO)
 
-- PKCS#12 client material in `NuropbRMQTls` / OpenSSL FFI only
+_(empty — Lean IO residuals below)_
 
 ## Not claimed
 
@@ -29,6 +29,7 @@ version.
 - RabbitMQ regex ACL engine (prefixes + live `amq.default` 403 in Python and Lean)
 - Park **exactly-once** server execution (at-least-once)
 - LangChain / LangGraph in Lean (examples stay Python-only)
+- Default `lake build` without OpenSSL (mTLS / PKCS#12 stay on `NuropbRMQTls`)
 
 See [CHANGELOG Unreleased](../CHANGELOG.md), [testing regime](reference/testing-regime.md),
 and [CORRESPONDENCE](../specs/lean/CORRESPONDENCE.md).

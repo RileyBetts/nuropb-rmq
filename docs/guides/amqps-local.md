@@ -60,8 +60,9 @@ pytest -q tests/integration/test_amqps_mtls_smoke.py
 ```
 
 The client prefers `EXTERNAL` only when the broker advertises it **and** a
-client cert is configured. Lean `selectSasl` matches that rule. Default
-`lake build` still does not link OpenSSL (`lake build NuropbRMQTls`).
+client cert is configured (PEM pair or, in Lean, `NUROPB_RMQ_PKCS12_FILE`).
+Lean `selectSasl` matches that rule. Default `lake build` still does not
+link OpenSSL (`lake build NuropbRMQTls`).
 
 ## Related
 

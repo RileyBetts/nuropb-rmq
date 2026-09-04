@@ -19,9 +19,9 @@ client Transport split and coverage smokes.
 | Pattern ACL | **Aligned** | `Pattern.Acl` prefix profiles; Python `patterns/acl.py`; CI management-API test. |
 | Config SpeC++ | **Aligned** | Unchanged. |
 | Lean IO runtime | **Aligned** | `NuropbRMQ.connect` / `connectWith` + `Transport`; `expectMethod` queues `BASIC_DELIVER`. Coverage: `./scripts/smoke_lean_coverage.sh`. |
-| TLS material / SASL EXTERNAL | **Aligned (PEM)** | Lean `selectSasl` prefers `EXTERNAL` when a client PEM pair is set; CI `lean-mtls` (plugin + CN mapping). PKCS#12 residual. Oracle TLS SM vector `sm_trace_tls.txt`. |
+| TLS material / SASL EXTERNAL | **Aligned** | Lean `selectSasl` prefers `EXTERNAL` when a client PEM pair or PKCS#12 bag is set; CI `lean-mtls` (plugin + CN mapping). Oracle TLS SM vector `sm_trace_tls.txt`. |
 
-Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; `authorize_func`; RabbitMQ regex engine / HA; park **exactly-once** server execution; PKCS#12 in Lean.
+Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; `authorize_func`; RabbitMQ regex engine / HA; park **exactly-once** server execution.
 
 ## Modules
 
@@ -196,13 +196,13 @@ is frozen; Lean names mirror it and are not a Python API change.
 |---|---|
 | Proofs + kernels | Lake target `NuropbRMQSpec` (`import NuropbRmq.*`, no `IO`) |
 | Lean AMQP/mesh client | Lake package / `import NuropbRMQ` (POSIX sockets; imports kernels) |
-| Optional AMQPS | `NuropbRMQTls.connect` (OpenSSL tls-verify-full PEM + mTLS `EXTERNAL`; not `default_target`). PKCS#12 residual. |
+| Optional AMQPS | `NuropbRMQTls.connect` (OpenSSL tls-verify-full PEM or PKCS#12 + mTLS `EXTERNAL`; not `default_target`). |
 | Python 1.0 | `nuropb_rmq` / PyPI `nuropb-rmq` (asyncio; no Lean FFI in the wheel) |
 
 | Lean client | Python 1.0 |
 |---|---|
 | `NuropbRMQ.connect` / `connectWith` / `Transport` | `AmqpConnection` (PLAIN; TLS is a separate byte pipe) |
-| `NuropbRMQ.Tls.connect` | `AmqpConnection` AMQPS `tls-verify-full` (PEM CA + optional client PEM / `EXTERNAL`; not PKCS#12) |
+| `NuropbRMQ.Tls.connect` | `AmqpConnection` AMQPS `tls-verify-full` (PEM CA + optional client PEM or PKCS#12 / `EXTERNAL`) |
 | `NuropbRMQ.Session` | `Session` |
 | `NuropbRMQ.RpcClient` / `RpcServer` | `RpcClient` / `RpcServer` |
 | `NuropbRMQ.MeshService` / `ServiceIdentity` | `MeshService` / `ServiceIdentity` |

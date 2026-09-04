@@ -17,7 +17,7 @@ def main : IO Unit := do
   unless cfg.tls do
     throw (IO.userError "set NUROPB_RMQ_TLS=1 (and CA / hostname) for lean_amqps_mtls")
   unless cfg.hasClientCert do
-    throw (IO.userError "set NUROPB_RMQ_CERT_FILE and NUROPB_RMQ_KEY_FILE for mTLS")
+    throw (IO.userError "set client PEM (CERT_FILE+KEY_FILE) or NUROPB_RMQ_PKCS12_FILE for mTLS")
   let c ← NuropbRMQTls.connect cfg
   let _ ← NuropbRMQ.openChannel c 1
   let q ← NuropbRMQ.queueDeclare c 1 "nr.ex.amqps.mtls" (durable := true)
