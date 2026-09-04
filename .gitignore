@@ -16,3 +16,4 @@ erl_crash.dump
 htmlcov/
 announcements.draft.md
 thinking/
+scripts/.rabbitmq-mtls.runtime.conf
