@@ -6,6 +6,8 @@ version.
 
 ## Done on `development`
 
+- Lean `authorize_func`: opaque `authorizeOk` on `tryAuth`, optional RPC hook
+  after HS256 (deny/allow in Lean claims smoke)
 - Dual runtime: Lean POSIX client (`import NuropbRMQ`) shares SpeC++ / Lean
   kernels with Python; no extraction either way
 - PLAIN mesh + optional AMQPS (`NuropbRMQTls.connect`, tls-verify-full PEM)
@@ -25,7 +27,6 @@ _(empty — Lean IO residuals below)_
 ## Not claimed
 
 - HMAC/SHA-256 hardness; RS256/ES256
-- Lean `authorize_func`
 - RabbitMQ regex ACL engine (prefixes + live `amq.default` 403 in Python and Lean)
 - Park **exactly-once** server execution (at-least-once)
 - LangChain / LangGraph in Lean (examples stay Python-only)

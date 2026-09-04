@@ -50,6 +50,12 @@ def decodeJsonPart (b64 : String) : Option String :=
   | none => none
   | some bytes => String.fromUTF8? bytes
 
+/-- Decoded JWT payload JSON (for the IO `authorize` hook). -/
+def payloadJson (token : String) : Option String :=
+  match splitCompact token with
+  | none => none
+  | some (_, p64, _) => decodeJsonPart p64
+
 def byteEq (a b : ByteArray) : Bool :=
   a.size == b.size &&
     Id.run do
@@ -92,6 +98,7 @@ def verifyHs256
                       correlationId := correlationId
                       jwtMethod := meth
                       rpcMethod := rpcMethod
+                      authorizeOk := true
                     }
                 | _, _, _ => .authReject
         | _, _, _ => .authReject

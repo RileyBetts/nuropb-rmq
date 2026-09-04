@@ -49,7 +49,7 @@ live broker checks, not cryptographic hardness.
 | Correlation | Colliding ids; second reply steals first; register with reply closed | `correlation_negatives.smt2` | `tests/session/test_correlation.py` |
 | Reconnect | Fail-fast vs park mix-up; epoch not monotonic | `phase2_reconnect_*`, `park_reconnect_*` | session PBTs + live park/fail-fast/mesh rebind |
 | Mesh bind | Bind outside `<service>.*` | `mesh_claims_negatives.smt2` | `test_mesh.py`; broker still required in prod |
-| JWT / claims | Missing, bad sig, expired, `jti`≠corr, method mismatch | same Pattern negatives + Lean `tryAuth_*` | `test_context.py`, golden `test_jwt_golden.py`, live mesh claims |
+| JWT / claims | Missing, bad sig, expired, `jti`≠corr, method mismatch, `authorizeOk` false | same Pattern negatives + Lean `tryAuth_*` | `test_context.py`, golden `test_jwt_golden.py`, live mesh claims + authorize deny |
 | Reply forge | Client publish to another `nr.reply.*` via default exchange | `acl_negatives.smt2`; Lean `forgeDenied` | `test_acl.py`; live `channel.close` **403** on `amq.default` (Python + `smoke_lean_reply_acl.sh`) |
 | Error oracle | Distinct fields for timeout vs other mesh errors | (shape only; not SpeC++) | `test_anti_enumeration.py` |
 | TLS | Skip verify; wrong hostname | outside Lean | AMQPS `VERIFY_FULL`; `test_amqps_wrong_hostname_rejected`; mTLS + `EXTERNAL` (`lean-mtls`) |
@@ -57,7 +57,7 @@ live broker checks, not cryptographic hardness.
 
 ## What this regime does not claim
 
-- HMAC/SHA-256 **hardness**; RS256/ES256; `authorize_func` in Lean
+- HMAC/SHA-256 **hardness**; RS256/ES256
 - RabbitMQ’s real regex ACL engine (Lean/Python prefixes; live 403 uses `amq.default` write)
 - Exactly-once server execution under park-and-retry (at-least-once)
 - Timing indistinguishability of errors

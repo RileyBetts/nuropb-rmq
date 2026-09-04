@@ -15,13 +15,13 @@ client Transport split and coverage smokes.
 | Inv 7 vs watchdog | **Aligned** | Lean `heartbeatPeer` miss count; Python `_heartbeat_loop` still owns wall-clock. |
 | Session Phase 1b | **Aligned** | First-wins / reply-open register gate; Lean `Ids.validId` charset theorems (Python `validate_id`). |
 | Session Phase 2 | **Aligned** | Fail-fast `onDisconnect` clears pending; `onDisconnectPark` + `wellFormedPark` (pending may survive the reply-queue gap); `onReconnect` keeps count. |
-| Pattern mesh/claims | **Aligned** | `tryAuth` decision tree plus executable HS256 `Pattern.Jwt.verifyHs256`. Lean IO claims smoke uses `goldenToken`. |
+| Pattern mesh/claims | **Aligned** | `tryAuth` decision tree plus executable HS256 `Pattern.Jwt.verifyHs256` and opaque `authorizeOk` / Lean IO `AuthConfig.authorize`. Lean IO claims smoke uses `goldenToken` plus deny/allow. |
 | Pattern ACL | **Aligned** | `Pattern.Acl` prefix profiles; Python `patterns/acl.py`; CI management-API test. |
 | Config SpeC++ | **Aligned** | Unchanged. |
 | Lean IO runtime | **Aligned** | `NuropbRMQ.connect` / `connectWith` + `Transport`; `expectMethod` queues `BASIC_DELIVER`. Coverage: `./scripts/smoke_lean_coverage.sh`. |
 | TLS material / SASL EXTERNAL | **Aligned** | Lean `selectSasl` prefers `EXTERNAL` when a client PEM pair or PKCS#12 bag is set; CI `lean-mtls` (plugin + CN mapping). Oracle TLS SM vector `sm_trace_tls.txt`. |
 
-Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; `authorize_func`; RabbitMQ regex engine / HA; park **exactly-once** server execution.
+Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; RabbitMQ regex engine / HA; park **exactly-once** server execution.
 
 ## Modules
 
@@ -148,14 +148,14 @@ Residuals (documented, not silent): HMAC/SHA256 **hardness**; RS256/ES256; `auth
 | `NuropbRmq.Pattern.Claims.tryAuth` | `AuthConfig.verify_request` |
 | `AuthPublicSkip` | `AuthConfig.public_methods` → verify returns `None` |
 | `AuthReject` fail-closed | missing/expired/unbound/bad-sig → `CLAIMS_*` / `UNAUTHORIZED` |
-| `AuthOk` (`jti`/`method` bind) | `jti`↔corr, `method` claim (constant-time compare in Python) |
+| `AuthOk` (`jti`/`method` bind + `authorizeOk`) | `jti`↔corr, `method` claim, then `authorize_func` |
 | `specs/specpp/Pattern/mesh_claims.smt2` | PBTs under `tests/patterns/test_mesh.py` + `test_context.py` |
 
 | Lean theorem(s) | Python / tests |
 |---|---|
 | `tryBind_ok_of_inNamespace`, `tryBind_refused_*`, `tryBind_exact_service` | `test_namespace_refuse`, `test_pbt_routing_key_in_namespace`, `test_pbt_exact_service_key` |
 | `tryAuth_public_skip` | `test_public_method_skips_claims`, `test_pbt_public_skip` |
-| `tryAuth_reject_*`, `tryAuth_ok` | `test_missing_claims_*`, `test_pbt_jti_must_match` |
+| `tryAuth_reject_*`, `tryAuth_ok` | `test_missing_claims_*`, `test_pbt_jti_must_match`, `test_authorize_func_denied` |
 
 JWT HS256 compact verify is executable in `Pattern.Jwt` (not a PRF proof).
 Broker ACL profiles are executable in `Pattern.Acl` (not the broker binary).

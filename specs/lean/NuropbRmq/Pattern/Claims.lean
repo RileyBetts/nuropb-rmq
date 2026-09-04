@@ -10,7 +10,8 @@ Mirrors SpeC++ `AuthOutcome` decision tree and Python
 `nuropb_rmq.patterns.context.AuthConfig.verify_request`.
 
 JWT cryptography is opaque: `validSig` / `expired` are Bool inputs,
-not HS256 proofs.
+not HS256 proofs. App policy after bind is opaque `authorizeOk`
+(default `true` when no hook is configured).
 -/
 
 namespace NuropbRmq.Pattern.Claims
@@ -27,6 +28,8 @@ structure AuthInput where
   correlationId : ClaimId
   jwtMethod : MethodName
   rpcMethod : MethodName
+  /-- App `authorize_func` after signature + `jti`/`method` bind. -/
+  authorizeOk : Bool := true
   deriving Repr
 
 inductive AuthOutcome where
@@ -43,6 +46,7 @@ def tryAuth (i : AuthInput) : AuthOutcome :=
   else if i.expired then .authReject
   else if !(i.jti == i.correlationId) then .authReject
   else if !(i.jwtMethod == i.rpcMethod) then .authReject
+  else if !i.authorizeOk then .authReject
   else .authOk
 
 /-- Auth is required when the method is not public. -/

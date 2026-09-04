@@ -50,19 +50,35 @@ def RpcClient.request (cli : RpcClient) (target method : String) (params : Json 
   | .ok (.ok v) => return v
   | .ok (.err code msg _) => throw (IO.userError s!"{code}: {msg}")
 
+/-- Lean counterpart of Python `AuthConfig`. The optional hook runs only after
+HS256 (later RS/ES) succeeds. `none` is allow (`authorizeOk = true`). -/
 structure AuthConfig where
   jwtSecret : String
   publicMethods : List String := []
-  deriving Repr
+  authorize : Option (String → String → Json → IO Bool) := none
+
+def AuthConfig.claimsToken (props : BasicProperties) : String :=
+  match NuropbRmq.Protocol.tableGetStr props.headers "nr.claims" with
+  | some t => t
+  | none => ""
 
 def AuthConfig.verify (a : AuthConfig) (method corrId : String) (props : BasicProperties)
     (now : Nat) : NuropbRmq.Pattern.Claims.AuthOutcome :=
   let isPublic := a.publicMethods.contains method
-  let token :=
-    match NuropbRmq.Protocol.tableGetStr props.headers "nr.claims" with
-    | some t => t
-    | none => ""
+  let token := AuthConfig.claimsToken props
   NuropbRmq.Pattern.Jwt.verifyHs256 a.jwtSecret token now corrId method isPublic
+
+/-- Python `authorize_func`: exception or `false` → deny. Public skip does not call this. -/
+def AuthConfig.applyAuthorize (a : AuthConfig) (method : String) (params : Json)
+    (token : String) : IO Bool := do
+  match a.authorize with
+  | none => return true
+  | some f =>
+    try
+      let claims := (NuropbRmq.Pattern.Jwt.payloadJson token).getD ""
+      f claims method params
+    catch _ =>
+      return false
 
 structure RpcServer where
   conn : AmqpConnection
@@ -83,14 +99,22 @@ def RpcServer.serveOnce (srv : RpcServer) (msg : IncomingMessage) : IO Unit := d
       let rid := corr.getD bodyId
       if let some a := srv.auth then
         let now := (← IO.monoMsNow) / 1000
+        let token := AuthConfig.claimsToken msg.properties
+        let unauthorized := encodeError UNAUTHORIZED "unauthorized" (some rid) (.obj [
+          ("code_name", .str "UNAUTHORIZED"), ("retryable", .bool false)
+        ])
         match AuthConfig.verify a method rid msg.properties now with
-        | .authOk | .authPublicSkip =>
+        | .authPublicSkip =>
           let result ← srv.handler method params
           out := encodeResult result rid
+        | .authOk =>
+          if (← AuthConfig.applyAuthorize a method params token) then
+            let result ← srv.handler method params
+            out := encodeResult result rid
+          else
+            out := unauthorized
         | .authReject =>
-          out := encodeError UNAUTHORIZED "unauthorized" (some rid) (.obj [
-            ("code_name", .str "UNAUTHORIZED"), ("retryable", .bool false)
-          ])
+          out := unauthorized
       else
         let result ← srv.handler method params
         out := encodeResult result rid
