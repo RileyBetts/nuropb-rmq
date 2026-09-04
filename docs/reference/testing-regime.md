@@ -48,6 +48,7 @@ live broker checks, not cryptographic hardness.
 | Confirms vs return | Treat `basic.return` as nack; drop unroutable | `publisher_confirms_*`, `basic_return_*` | `tests/transport/test_{confirm,return}.py`, live return tests |
 | Correlation | Colliding ids; second reply steals first; register with reply closed | `correlation_negatives.smt2` | `tests/session/test_correlation.py` |
 | Reconnect | Fail-fast vs park mix-up; epoch not monotonic | `phase2_reconnect_*`, `park_reconnect_*` | session PBTs + live park/fail-fast/mesh rebind |
+| Park dedup | Second delivery reruns handler when window on | `dedup.smt2` / `tryDedup_*` | `test_rpc_dedup.py`; live park `calls==1` with `dedup_window` |
 | Mesh bind | Bind outside `<service>.*` | `mesh_claims_negatives.smt2` | `test_mesh.py`; broker still required in prod |
 | JWT / claims | Missing, bad sig, expired, `jti`≠corr, method mismatch, `authorizeOk` false | same Pattern negatives + Lean `tryAuth_*` | `test_context.py`, golden `test_jwt_golden.py` (HS256 + RS256/ES256), live mesh claims + authorize deny; Lean RS/ES via `smoke_lean_jwt_asymmetric.sh` |
 | Reply forge | Client publish to another `nr.reply.*` via default exchange | `acl_negatives.smt2`; Lean `forgeDenied` + regex agree | `test_acl.py`; live `channel.close` **403** on `amq.default` (prefix + narrower regex; Python + Lean smokes) |
@@ -59,7 +60,8 @@ live broker checks, not cryptographic hardness.
 
 - HMAC/SHA-256 **hardness**
 - Full RabbitMQ regex ACL engine / HA (scoped `matchesRegex` + live 403 are in tree)
-- Exactly-once server execution under park-and-retry (at-least-once)
+- Park exactly-once *delivery* / clustered dedup (optional in-process
+  `dedup_window` is handler-once only)
 - Timing indistinguishability of errors
 - Throughput (`-m benchmark` is optional, not CI)
 

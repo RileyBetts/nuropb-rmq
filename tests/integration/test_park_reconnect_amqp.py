@@ -75,6 +75,37 @@ async def test_park_and_retry_completes_after_drop() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_park_and_retry_dedup_window_handler_once() -> None:
+    q = f"nr.rpc.park.dedup.{uuid.uuid4().hex}"
+    calls = 0
+
+    async def handler(method: str, params: object) -> object:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.4)
+        assert method == "echo.park"
+        return {"pong": 1, "calls": calls}
+
+    server = RpcServer(_cfg(), queue=q, handler=handler, dedup_window=32)
+    session = Session(_cfg())
+    try:
+        await server.start()
+        await session.start()
+        client = RpcClient(session)
+        req = asyncio.create_task(client.request(q, "echo.park", {}))
+        await asyncio.sleep(0.12)
+        await session.conn.force_drop()
+        result = await asyncio.wait_for(req, timeout=15)
+        assert result["pong"] == 1
+        assert session.epoch >= 1
+        assert calls == 1
+    finally:
+        await session.close()
+        await server.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_fail_fast_policy_raises_connection_lost() -> None:
     q = f"nr.rpc.ff.{uuid.uuid4().hex}"
 

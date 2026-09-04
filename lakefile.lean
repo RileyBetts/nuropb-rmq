@@ -95,6 +95,11 @@ lean_exe lean_reconnect_client where
   srcDir := "examples"
   root := `LeanReconnect.Client
 
+/-- Process-local RPC dedup smoke. No broker. -/
+lean_exe lean_dedup_hello where
+  srcDir := "examples"
+  root := `LeanDedup.Hello
+
 lean_exe interop_hello_publisher where
   srcDir := "examples"
   root := `InteropHello.Publisher

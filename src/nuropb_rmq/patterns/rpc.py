@@ -43,6 +43,19 @@ from nuropb_rmq.transport.connection import (
 Handler = Callable[[str, Any], Awaitable[Any] | Any]
 
 
+def try_dedup(seen: list[str], cap: int, request_id: str) -> tuple[str, list[str]]:
+    """Kernel correspondence with Lean ``tryDedup``. Returns ``fresh``/``replay``.
+
+    Cap ``0`` is off (always fresh, list unchanged). Newest first; overflow
+    drops the oldest. Process-local only — not clustered / HA.
+    """
+    if request_id in seen:
+        return "replay", seen
+    if cap == 0:
+        return "fresh", seen
+    return "fresh", ([request_id, *seen])[:cap]
+
+
 class NackDelivery(Exception):
     """Raise from an RpcServer handler to settle with basic.nack (default: no requeue)."""
 
@@ -194,7 +207,10 @@ class RpcServer:
         conn: AmqpConnection | None = None,
         declare_queue: bool = True,
         queue_profile: QueueProfile | None = None,
+        dedup_window: int = 0,
     ) -> None:
+        if dedup_window < 0:
+            raise ValueError("dedup_window must be >= 0")
         self.conn = conn if conn is not None else AmqpConnection(config)
         self._owns_conn = conn is None
         self.queue = queue
@@ -205,6 +221,9 @@ class RpcServer:
         self.queue_profile = queue_profile or durable_at_least_once(
             dead_letter_exchange=f"nr.dlx.{queue}",
         )
+        self.dedup_window = dedup_window
+        self._dedup_seen: list[str] = []
+        self._dedup_cache: dict[str, Any] = {}
         self._task: asyncio.Task[None] | None = None
         self._running = False
         self._connected = False
@@ -216,6 +235,7 @@ class RpcServer:
         *,
         handler: Handler,
         auth: AuthConfig | None = None,
+        dedup_window: int = 0,
     ) -> RpcServer:
         """Consume a queue already declared/bound by ``MeshService.start()``."""
         if not mesh.started or mesh.queue is None:
@@ -228,6 +248,7 @@ class RpcServer:
             conn=mesh.conn,
             declare_queue=False,
             queue_profile=mesh.queue_profile,
+            dedup_window=dedup_window,
         )
 
     async def start(self) -> None:
@@ -290,10 +311,27 @@ class RpcServer:
                     correlation_id=request_id,
                     properties=msg.properties,
                 )
-            result = self.handler(method, params)
-            if asyncio.iscoroutine(result):
-                result = await result
-            out = encode_result(result, request_id)
+            cached = (
+                self._dedup_cache.get(request_id)
+                if self.dedup_window > 0 and isinstance(request_id, str)
+                else None
+            )
+            if cached is not None:
+                out = encode_result(cached, request_id)
+            else:
+                result = self.handler(method, params)
+                if asyncio.iscoroutine(result):
+                    result = await result
+                out = encode_result(result, request_id)
+                if self.dedup_window > 0 and isinstance(request_id, str):
+                    outcome, self._dedup_seen = try_dedup(
+                        self._dedup_seen, self.dedup_window, request_id
+                    )
+                    if outcome == "fresh":
+                        self._dedup_cache[request_id] = result
+                        for evicted in list(self._dedup_cache):
+                            if evicted not in self._dedup_seen:
+                                del self._dedup_cache[evicted]
         except NackDelivery as exc:
             await self.conn.basic_nack(
                 self.channel_id, msg.delivery_tag, requeue=exc.requeue
