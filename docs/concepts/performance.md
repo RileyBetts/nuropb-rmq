@@ -82,9 +82,9 @@ once can drop a UV promise). The morning Lean raw **~17310** was POSIX
 steal-the-socket and is gone. **Not** a 17k claim and **not** an SLO.
 
 These RPC cells use a **classic auto-delete** queue on the default exchange
-(same shape as `bench/runners/nuropb_rpc.py`). `MeshService.start` declares a
-**quorum** queue bound to `nr.mesh` plus a DLX. Mesh capacity is
-broker/quorum-bound and will sit below this exclusive-reply table.
+(same shape as `bench/runners/nuropb_rpc.py`) — **not** mesh.
+`MeshService.start` declares a **quorum** queue bound to `nr.mesh` plus a DLX.
+See **Fair remasure: raw vs mesh** below.
 
 ### Honesty
 
@@ -132,7 +132,10 @@ RabbitMQ 4 rejects transient **non-exclusive** queues, so these cells declare
 Loopback without Docker NAT is a different path; do not compare these rates
 to the Docker tables as a client win.
 
-### PLAIN firehose
+### PLAIN firehose (historical)
+
+Lean firehose here used **one** connection (pub+consume on the same pump).
+RPC is exclusive-queue on the default exchange — **not** mesh.
 
 | Workload | Pass | Python | Lean |
 |----------|------|--------|------|
@@ -155,12 +158,75 @@ to the Docker tables as a client win.
 On this host path Python led most raw cells. RPC is in the same band; pass-to-pass
 spread is large (Python AMQPS overlap 1233 vs 708). Still **not** an SLO.
 
+## Fair remasure: raw vs mesh (2026-09-05)
+
+Same laptop, Homebrew RabbitMQ 4.3.4. PLAIN `:5673`, AMQPS `:5674` (mTLS +
+EXTERNAL). Lean raw firehose is now **dual-connection** (pub ∥ consume), matching
+Python. RPC is three topologies so hop vs quorum is visible. Not an SLO.
+
+| Topology | Shape |
+|----------|--------|
+| `raw_firehose` | Exclusive queue; no per-message confirm |
+| `raw_serial` | AMQPS: publish+confirm+consume+ack (two RTTs) |
+| `rpc_classic` | Exclusive auto-delete on the default exchange |
+| `rpc_mesh_classic` | `nr.mesh` + `durable_classic()` work queue |
+| `rpc_mesh_quorum` | `MeshService.start` default (quorum + DLX + TTL) |
+
+Overlap: Python 8 sessions; Lean `requestAll` windows of 32.
+
+Re-measured the same day after Lean `pumpDrain` (decode every complete frame
+before the next `recv`) and Python `RpcClient.request` confirm∥reply
+(`_publish_kick`, no `api.py` change). Raw rows below are a later remasure
+the same day after Lean `flushWrites` matches asyncio `drain()` (background
+flusher; await `uv_write` only above 64 KiB). RPC/mesh rows are unchanged.
+Not an SLO.
+
+### PLAIN (fair dual-connection)
+
+| Workload | Pass | Python | Lean |
+|----------|------|--------|------|
+| Raw 64 B | 1 / 2 | **9038** / **9609** | 5878 / 5466 |
+| Raw 1 KiB | 1 / 2 | **8119** / **8395** | 5398 / 5285 |
+| Raw 16 KiB | 1 / 2 | **6203** / **6566** | 4018 / 4112 |
+| `rpc_classic` serial | 1 / 2 | 765 / 754 | **776** / **761** |
+| `rpc_classic` overlap | 1 / 2 | 1733 / **1611** | **1754** / 1580 |
+| `rpc_mesh_classic` serial | 1 / 2 | **582** / **533** | 511 / 322 |
+| `rpc_mesh_classic` overlap | 1 / 2 | 1361 / 1574 | **1604** / **1686** |
+| `rpc_mesh_quorum` serial | 1 / 2 | 435 / 434 | **439** / **450** |
+| `rpc_mesh_quorum` overlap | 1 / 2 | 1276 / 1403 | **1455** / **1482** |
+
+### AMQPS
+
+Raw and mesh-AMQPS rows are the earlier fair remasure (unchanged path).
+`rpc_classic` re-measured after Python confirm∥reply.
+
+| Workload | Pass | Python | Lean |
+|----------|------|--------|------|
+| Raw 64 B serial | 1 / 2 | **1502** / 1249 | 1461 / **1483** |
+| Raw 1 KiB serial | 1 / 2 | 1315 / 1090 | **1497** / **1482** |
+| Raw 16 KiB serial | 1 / 2 | **1364** / **1068** | 1032 / 1022 |
+| `rpc_classic` serial | 1 / 2 | 483 / 497 | **611** / **604** |
+| `rpc_classic` overlap | 1 / 2 | 963 / 1069 | **1328** / **1318** |
+| `rpc_mesh_classic` serial | 1 / 2 | 433 / 318 | **474** / **438** |
+| `rpc_mesh_classic` overlap | 1 / 2 | 1022 / 820 | **1337** / **1359** |
+| `rpc_mesh_quorum` serial | 1 / 2 | 319 / 288 | **323** / **373** |
+| `rpc_mesh_quorum` overlap | 1 / 2 | 887 / 610 | **1209** / **1226** |
+
+Lean `pumpDrain` did **not** move firehose. Awaiting every `uv_write` did:
+PLAIN raw 64 B went from ~3.2k to ~5.7k msgs/s (above the old one-connection
+~4.9k cell). Python still leads (~9.3k). That is not a 9k claim. PLAIN RPC
+stays in the same band after confirm∥reply. AMQPS overlap is still Lean-led.
+`rpc_mesh_classic` sits near `rpc_classic`. `rpc_mesh_quorum` is slower —
+do not treat an exclusive-queue RPC win as a mesh win. Quorum + DLX is the
+production mesh bound.
+
 ```bash
-# Lean vs Python IO remasure (exclusive queues; not an SLO).
+# Lean vs Python IO remasure (not an SLO).
 # Local Homebrew defaults: PLAIN :5673, AMQPS :5674
 ./scripts/remeasure_lean_python.sh
-./scripts/remeasure_lean_python.sh --plain
-./scripts/remeasure_lean_python.sh --amqps
+./scripts/remeasure_lean_python.sh --plain --raw
+./scripts/remeasure_lean_python.sh --plain --rpc --mesh
+./scripts/remeasure_lean_python.sh --amqps --mesh
 ./scripts/remeasure_lean_python.sh --plain-port 5672 --amqps-port 5671
 
 uv sync --dev --extra bench

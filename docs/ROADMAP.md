@@ -1,6 +1,6 @@
 # Roadmap
 
-Dated **2026-09-04**. Python 1.0 (`src/nuropb_rmq/api.py`) stays frozen. This
+Dated **2026-09-05**. Python 1.0 (`src/nuropb_rmq/api.py`) stays frozen. This
 is not a release schedule and does not claim Reservoir tags or a new PyPI
 version.
 
@@ -41,7 +41,14 @@ version.
 
 ## Next (Lean IO)
 
-_(empty — Lean IO residuals below)_
+- Done this slice: Lean `flushWrites` is a background flusher; `sendRawAsync`
+  awaits `uv_write` only above 64 KiB (`writeHighWater`, asyncio `drain()`);
+  `close` waits until idle. Remasure PLAIN raw 64 B: Lean ~5.7k (was ~3.2k)
+  vs Python ~9.3k. `pumpDrain` and Python confirm∥reply stay as before.
+- Residual: Lean fair firehose still behind Python (~1.6× at 64 B). Do not
+  spend another slice on recv decode or `rpc_mesh_quorum`.
+- Do not spend client IO on `rpc_mesh_quorum`. Quorum is the bound;
+  `durable_classic()` is already the fast mesh profile.
 
 ## Not claimed
 

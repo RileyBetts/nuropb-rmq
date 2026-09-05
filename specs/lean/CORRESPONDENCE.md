@@ -32,7 +32,7 @@ Residuals (documented, not silent): HMAC/SHA256 **hardness**; full RabbitMQ rege
 | **Quality (Python)** | `_notify_loss` enqueues one `_LOSS_SENTINEL` per queue — a second blocked `receive()` / `receive_return()` waiter is not woken. Session uses one reply loop. |
 | **Quality (Python)** | `basic_publish(confirm=True, drain=False)` waits for the confirm without flushing. `RpcServer` uses `drain=False` with `confirm=False` then `basic_ack` (one drain). Do not combine confirm + no-drain. |
 | **Quality (Python)** | Failed `connect()` after `on_tcp_connected` leaves the SM out of `INIT`; retry the same object. `Session.reconnect` allocates a fresh `AmqpConnection`. |
-| **Lean-only IO** | Dial hook, `requestAll`, confirm overlapped with reply wait, write-combine flush, UV BIO TLS. Do not port these into Python 1.0. |
+| **Lean-only IO** | Dial hook, `requestAll`, write-combine flush, UV BIO TLS. Do not port these into Python 1.0. Python `RpcClient.request` overlaps confirm with `wait_reply` via `_publish_kick` (not in `api.py`). |
 | **Lean drift** | `MeshService.announce` is stored but `start` does not publish a registry advertisement (Python `announce=True` does). |
 | **Lean drift** | Lean `waitReply` defaults to a 60s client timer; Python `broker_timeout=True` is broker TTL/DLX with no parallel client timer. |
 | **Docs (fixed)** | RS256/ES256 is not Lean-only: Python `AuthConfig.jwt_public_key` + PyJWT goldens. |
@@ -223,6 +223,7 @@ is frozen; Lean names mirror it and are not a Python API change.
 |---|---|
 | `NuropbRMQ.connect` / `connectAsync` / `connectWithAsync` / `AsyncByteTransport` | `AmqpConnection` (`asyncio.open_connection`; Lean APIs are `Async`) |
 | `encodeBurst` / `sendBurstAsync` (one `aio.send`) | `_write_frame` into the asyncio buffer + one `_drain()` |
+| `flushWrites` / `writeHighWater` (background flusher; await only above 64 KiB) | `StreamWriter.write` + `drain()` (wait only when the transport is paused) |
 | `NuropbRMQTls.connectAsync` + `Session.startAsync` dial hook | `AmqpConnection.connect` when `ConnectionConfig.tls` (stdlib `ssl`; PEM / PKCS#12 / secrets hook / `EXTERNAL`) |
 | `NuropbRMQ.RpcClient.request` / `requestAsync` / `requestAll` | `RpcClient.request` (confirm then reply; many in-flight via asyncio tasks, no `requestAll`) |
 | `NuropbRMQ.Session.startAsync` | `Session.start` |

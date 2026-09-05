@@ -48,12 +48,17 @@ lists). After PLAIN dial, `TCP.Socket.Client.noDelay` sets `TCP_NODELAY`.
 `sendBurstAsync` issues one `aio.send`. Inbound recvs 64 KiB and advances a
 buffer offset (compact when the dead prefix is large vs remaining size).
 `lastPeerMs` is refreshed on heartbeat / idle, not every method frame.
+`pumpLoop` fills until one complete frame, then `pumpDrain` decodes every
+remaining complete frame in `buffer` before the next `recv?` (Python
+`_read_loop` inner `decode_frame` loop).
 `requestAsync` registers the confirm waiter and the reply waiter together
 (`Async.concurrently`) so the two broker RTTs overlap. `serveOnceAsync`
 writes the JSON-RPC reply and the request `basic.ack` in one `aio.send`
 (Python `drain=False` on the reply, drain on the ack). Pumped writes enqueue
-complete bursts on `writePending`; one flusher concatenates and issues a
-single `aio.send` (no mid-frame splice).
+complete bursts on `writePending`; one background flusher concatenates and
+issues a single `aio.send` (no mid-frame splice). Callers await only when
+queued bytes exceed 64 KiB (`writeHighWater`, asyncio `drain()`). `close`
+waits until the write queue is idle.
 
 ## TLS (memory BIO on the UV loop)
 

@@ -81,9 +81,18 @@ structure ConnState where
   writeBusy : Bool := false
   writeWaiters : List (IO.Promise (Except IO.Error Unit)) := []
   writePending : List ByteArray := []
+  writePendingBytes : Nat := 0
   writeFlushing : Bool := false
+  writeDrainWaiters : List (IO.Promise (Except IO.Error Unit)) := []
+  writeIdleWaiters : List (IO.Promise (Except IO.Error Unit)) := []
 
 def recvChunk : Nat := 65536
+
+/-- asyncio `StreamWriter` high-water (~64 KiB). Await `uv_write` only above this. -/
+def writeHighWater : Nat := 65536
+
+/-- Resume drain waiters at a quarter of the high-water (asyncio low-water). -/
+def writeLowWater : Nat := 16384
 
 def ConnState.avail (s : ConnState) : Nat :=
   s.buffer.size - s.bufOff
@@ -173,6 +182,10 @@ def failWaiters (st : IO.Ref ConnState) (msg : String) : IO Unit := do
     p.resolve (.error err)
   for p in s.writeWaiters do
     p.resolve (.error err)
+  for p in s.writeDrainWaiters do
+    p.resolve (.error err)
+  for p in s.writeIdleWaiters do
+    p.resolve (.error err)
   st.modify fun x => {
     x with
     lost := some msg
@@ -184,7 +197,10 @@ def failWaiters (st : IO.Ref ConnState) (msg : String) : IO Unit := do
     writeBusy := false
     writeWaiters := []
     writePending := []
+    writePendingBytes := 0
     writeFlushing := false
+    writeDrainWaiters := []
+    writeIdleWaiters := []
   }
 
 def concatBytes (xs : List ByteArray) : ByteArray :=
@@ -195,16 +211,29 @@ def concatBytes (xs : List ByteArray) : ByteArray :=
     let sz := xs.foldl (init := 0) (fun acc b => acc + b.size)
     xs.foldl (init := ByteArray.emptyWithCapacity sz) (fun acc b => acc ++ b)
 
-/-- Drain `writePending` into one `aio.send`. Complete bursts only (no mid-frame splice). -/
+/-- Wake every waiter in `ps`. -/
+def resolveUnitWaiters (ps : List (IO.Promise (Except IO.Error Unit))) : IO Unit := do
+  for p in ps do
+    p.resolve (.ok ())
+
+/-- Drain `writePending` into one `aio.send`. Complete bursts only (no mid-frame splice).
+    One outstanding send per connection. Drain waiters resume at `writeLowWater`;
+    idle waiters resume when the queue is empty. -/
 partial def flushWrites (st : IO.Ref ConnState) : Async Unit := do
   let chunks ← ioRun (st.modifyGet fun s =>
-    (s.writePending, { s with writePending := [] }))
+    (s.writePending, { s with writePending := [], writePendingBytes := 0 }))
   if chunks.isEmpty then
-    let again ← ioRun (st.modifyGet fun s =>
+    let (again, drain, idle) ← ioRun (st.modifyGet fun s =>
       if s.writePending.isEmpty then
-        (false, { s with writeFlushing := false })
+        ((false, s.writeDrainWaiters, s.writeIdleWaiters),
+          { s with
+            writeFlushing := false
+            writeDrainWaiters := []
+            writeIdleWaiters := [] })
       else
-        (true, s))
+        ((true, [], []), s))
+    ioRun (resolveUnitWaiters drain)
+    ioRun (resolveUnitWaiters idle)
     if again then flushWrites st
     return
   let s ← getSt st
@@ -214,23 +243,51 @@ partial def flushWrites (st : IO.Ref ConnState) : Async Unit := do
   catch e =>
     ioRun (failWaiters st (toString e))
     throw e
+  let drain ← ioRun (st.modifyGet fun s =>
+    if s.writePendingBytes ≤ writeLowWater then
+      (s.writeDrainWaiters, { s with writeDrainWaiters := [] })
+    else
+      ([], s))
+  ioRun (resolveUnitWaiters drain)
   flushWrites st
 
-/-- Enqueue a complete AMQP burst and kick the flusher if idle. -/
+/-- Enqueue a complete AMQP burst. Kick a background flusher if idle. Await only
+    when queued bytes exceed `writeHighWater` (asyncio `drain()`). -/
 def sendRawAsync (st : IO.Ref ConnState) (raw : ByteArray) : Async Unit := do
-  let kick ← ioRun (st.modifyGet fun s =>
+  let drainP ← IO.Promise.new
+  let outcome ← ioRun (st.modifyGet fun s =>
     if s.closed then
       (none, s)
     else
-      let s := { s with writePending := s.writePending ++ [raw] }
-      if s.writeFlushing then
-        (some false, s)
+      let bytes := s.writePendingBytes + raw.size
+      let kick := !s.writeFlushing
+      let s := { s with
+        writePending := s.writePending ++ [raw]
+        writePendingBytes := bytes
+        writeFlushing := true
+      }
+      if bytes > writeHighWater then
+        (some (kick, true), { s with writeDrainWaiters := s.writeDrainWaiters ++ [drainP] })
       else
-        (some true, { s with writeFlushing := true }))
-  match kick with
+        (some (kick, false), s))
+  match outcome with
   | none => throw (IO.userError "connection closed")
-  | some true => flushWrites st
-  | some false => pure ()
+  | some (kick, wait) =>
+    if kick then
+      background (flushWrites st)
+    if wait then
+      awaitExceptAsync drainP
+
+/-- Block until `writePending` is empty and the flusher has stopped. -/
+def waitWritesIdle (st : IO.Ref ConnState) : Async Unit := do
+  let p ← IO.Promise.new
+  let idle ← ioRun (st.modifyGet fun s =>
+    if s.closed || (!s.writeFlushing && s.writePending.isEmpty) then
+      (true, s)
+    else
+      (false, { s with writeIdleWaiters := s.writeIdleWaiters ++ [p] }))
+  unless idle do
+    awaitExceptAsync p
 
 /-- Resolve the oldest waiter matching this (ch, class, method). -/
 def resolveMethod1 (st : IO.Ref ConnState) (ch : Nat) (m : Method) : IO Bool := do
@@ -327,7 +384,31 @@ partial def fillAtLeastAio (st : IO.Ref ConnState) (n : Nat) : Async Unit := do
     modSt st fun x => { x with buffer := x.buffer ++ chunk }
     fillAtLeastAio st n
 
-partial def readFrameAio (st : IO.Ref ConnState) : Async Frame := do
+def ConnState.hasCompleteFrame (s : ConnState) : Bool :=
+  if s.avail < 7 then false
+  else
+    match getU32be s.buffer (s.bufOff + 3) with
+    | none => false
+    | some (size, _) => s.avail ≥ 8 + size
+
+/-- Decode one frame already in `buffer`. No `recv?`. -/
+def tryReadFrame (st : IO.Ref ConnState) : Async (Option Frame) := do
+  let s ← getSt st
+  if s.closed || !s.hasCompleteFrame then return none
+  match getU32be s.buffer (s.bufOff + 3) with
+  | none => return none
+  | some (size, _) =>
+    if !decodeAccepted size 0 s.frameMax defaultMaxTableDepth then
+      throw (IO.userError "frame exceeds frame_max")
+    match decodeFrame s.buffer s.frameMax s.bufOff with
+    | none => throw (IO.userError "decodeFrame failed")
+    | some (fr, next) =>
+      modSt st fun x =>
+        ({ x with bufOff := next }).compactIfNeeded
+      return some fr
+
+/-- Block until at least one complete AMQP frame is buffered. -/
+partial def fillUntilFrame (st : IO.Ref ConnState) : Async Unit := do
   fillAtLeastAio st 7
   let s ← getSt st
   match getU32be s.buffer (s.bufOff + 3) with
@@ -336,14 +417,12 @@ partial def readFrameAio (st : IO.Ref ConnState) : Async Frame := do
     if !decodeAccepted size 0 s.frameMax defaultMaxTableDepth then
       throw (IO.userError "frame exceeds frame_max")
     fillAtLeastAio st (8 + size)
-    let s ← getSt st
-    match decodeFrame s.buffer s.frameMax s.bufOff with
-    | none => throw (IO.userError "decodeFrame failed")
-    | some (fr, next) =>
-      -- `modify` so concurrent waiter registration is not wiped by a stale snapshot.
-      modSt st fun x =>
-        ({ x with bufOff := next }).compactIfNeeded
-      return fr
+
+partial def readFrameAio (st : IO.Ref ConnState) : Async Frame := do
+  fillUntilFrame st
+  match ← tryReadFrame st with
+  | some fr => return fr
+  | none => throw (IO.userError "decodeFrame failed")
 
 partial def assembleContentAio (st : IO.Ref ConnState) (channelId : Nat) : Async (BasicProperties × ByteArray) := do
   let fr ← readFrameAio st
@@ -403,20 +482,32 @@ def dispatchMethod (st : IO.Ref ConnState) (fr : Frame) (m : Method) : Async Uni
     if !hit then
       pure ()
 
+def handlePumpedFrame (st : IO.Ref ConnState) (fr : Frame) : Async Unit := do
+  if fr.kind == .heartbeat then
+    let now ← ioRun IO.monoMsNow
+    modSt st fun x => { x with lastPeerMs := now }
+  else if fr.kind == .method then
+    match decodeMethod fr.payload with
+    | none => ioRun (failWaiters st "decodeMethod failed")
+    | some m => dispatchMethod st fr m
+  else
+    pure ()
+
+/-- Dispatch every complete frame already in `buffer` (Python `_read_loop` inner). -/
+partial def pumpDrain (st : IO.Ref ConnState) : Async Unit := do
+  match ← tryReadFrame st with
+  | none => return
+  | some fr =>
+    handlePumpedFrame st fr
+    pumpDrain st
+
 partial def pumpLoop (st : IO.Ref ConnState) : Async Unit := do
   let s ← getSt st
   if s.closed then return
   try
-    let fr ← readFrameAio st
-    if fr.kind == .heartbeat then
-      let now ← ioRun IO.monoMsNow
-      modSt st fun x => { x with lastPeerMs := now }
-    else if fr.kind == .method then
-      match decodeMethod fr.payload with
-      | none => ioRun (failWaiters st "decodeMethod failed")
-      | some m => dispatchMethod st fr m
-    else
-      pure ()
+    if !s.hasCompleteFrame then
+      fillUntilFrame st
+    pumpDrain st
     pumpLoop st
   catch e =>
     ioRun (failWaiters st (toString e))
@@ -589,6 +680,8 @@ def close (c : AmqpConnection) : Async Unit := do
       modSt c.st fun x => { x with sm := sm' }
     catch _ =>
       pure ()
+  -- Finish in-flight bursts before `failWaiters` wipes `writePending`.
+  waitWritesIdle c.st
   -- Stop the pump and waiters before `aio.close` frees TLS (`SSL_free`).
   -- Idempotent: pump errors already call `failWaiters`.
   if !(← getSt c.st).closed then

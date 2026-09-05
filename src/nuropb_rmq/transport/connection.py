@@ -541,7 +541,21 @@ class AmqpConnection:
         )
         await self._expect(channel_id, m.QUEUE, m.QUEUE_BIND_OK)
 
-    async def basic_publish(
+    def _raise_if_returned(self, channel_id: int, tag: int | None) -> None:
+        if tag is None:
+            return
+        returned = self._return_by_tag.get(channel_id, {}).pop(tag, None)
+        if returned is not None:
+            raise PublishReturned(
+                returned.reply_code,
+                returned.reply_text,
+                exchange=returned.exchange,
+                routing_key=returned.routing_key,
+                body=returned.body,
+                properties=returned.properties,
+            )
+
+    async def _publish_kick(
         self,
         channel_id: int,
         body: bytes,
@@ -553,7 +567,8 @@ class AmqpConnection:
         queue_profile: QueueProfile | None = None,
         confirm: bool | None = None,
         mandatory: bool = False,
-    ) -> None:
+    ) -> tuple[int | None, asyncio.Future[None] | None]:
+        """Write+drain a publish. Returns (tag, confirm future); does not wait."""
         ch = self._channels[channel_id]
         ch.assert_open_for_ops()
         if self._publish_blocked:
@@ -615,19 +630,36 @@ class AmqpConnection:
                 offset += len(chunk)
         if drain:
             await self._drain()
+        return tag, confirm_fut
+
+    async def basic_publish(
+        self,
+        channel_id: int,
+        body: bytes,
+        *,
+        exchange: str = "",
+        routing_key: str = "",
+        properties: dict[str, Any] | None = None,
+        drain: bool = True,
+        queue_profile: QueueProfile | None = None,
+        confirm: bool | None = None,
+        mandatory: bool = False,
+    ) -> None:
+        tag, confirm_fut = await self._publish_kick(
+            channel_id,
+            body,
+            exchange=exchange,
+            routing_key=routing_key,
+            properties=properties,
+            drain=drain,
+            queue_profile=queue_profile,
+            confirm=confirm,
+            mandatory=mandatory,
+        )
         if confirm_fut is not None:
             await confirm_fut
-            if mandatory and tag is not None:
-                returned = self._return_by_tag.get(channel_id, {}).pop(tag, None)
-                if returned is not None:
-                    raise PublishReturned(
-                        returned.reply_code,
-                        returned.reply_text,
-                        exchange=returned.exchange,
-                        routing_key=returned.routing_key,
-                        body=returned.body,
-                        properties=returned.properties,
-                    )
+            if mandatory:
+                self._raise_if_returned(channel_id, tag)
 
     async def update_secret(self, new_secret: str | bytes, reason: str = "") -> None:
         """Rotate the connection authentication secret (AMQP ``connection.update-secret``).

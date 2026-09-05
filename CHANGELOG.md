@@ -16,9 +16,12 @@ All notable changes to this project are documented in this file.
 - Lean AMQP IO: `TCP_NODELAY`, one `aio.send` per `encodeBurst`, 64 KiB
   offset recv buffer, cached session handles, `HashMap` confirm/reply waiters
 - Lean RPC IO: confirm overlapped with reply wait; server reply+ack one write;
+  Python `RpcClient.request` overlaps the same way via `_publish_kick` (not in
+  `api.py`)
   `encodePublish` for small bodies; single-body inbound slice
 - Lean write-combine: pumped `sendRawAsync` enqueues complete bursts;
-  `flushWrites` concatenates into one `aio.send`
+  `flushWrites` concatenates into one `aio.send`. Await `uv_write` only
+  above a 64 KiB watermark (asyncio `drain()`); `close` waits until idle
 - Optional AMQPS via `NuropbRMQTls.connectAsync` (`tls-verify-full` PEM;
   UV-loop memory BIO / `SSL_ERROR_WANT_*`; no `SSL_set_fd`)
 - Lean ↔ Python interop, Lean AMQPS, Lean IO coverage, and Lean reply-forge 403
