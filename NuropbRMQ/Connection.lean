@@ -255,7 +255,11 @@ inductive FlushNext where
   | send
   | stop
   | park (p : IO.Promise (Except IO.Error Unit))
+      (idle : List (IO.Promise (Except IO.Error Unit)))
 
+/-- One flusher per connection (started from `startPumpAsync`). Parks when
+    idle instead of exiting, so `sendRawAsync` never owns a child task that
+    Std.Async can drop when the publish returns. -/
 partial def flushWrites (st : IO.Ref ConnState) : Async Unit := do
   let parkP ← IO.Promise.new
   let next ← ioRun (st.modifyGet fun s =>
@@ -263,14 +267,21 @@ partial def flushWrites (st : IO.Ref ConnState) : Async Unit := do
       (FlushNext.stop, { s with writeFlushing := false, writeFlushGo := none })
     else if s.shouldFlushNow then
       (FlushNext.send, { s with writeFlushGo := none })
-    else if s.writePending.isEmpty then
-      (FlushNext.stop, { s with writeFlushing := false, writeFlushGo := none })
     else
-      (FlushNext.park parkP, { s with writeFlushGo := some parkP }))
+      let idle := if s.writePending.isEmpty then s.writeIdleWaiters else []
+      let s := if s.writePending.isEmpty then { s with writeIdleWaiters := [] } else s
+      (FlushNext.park parkP idle, { s with writeFlushGo := some parkP }))
   match next with
-  | .park p =>
+  | .park p idle =>
+    ioRun (resolveUnitWaiters idle)
     try awaitExceptAsync p catch _ => pure ()
-    if (← getSt st).closed then return
+    if (← getSt st).closed then
+      let (drain, leftover) ← ioRun (st.modifyGet fun s =>
+        ((s.writeDrainWaiters, s.writeIdleWaiters),
+          { s with writeDrainWaiters := [], writeIdleWaiters := [] }))
+      ioRun (resolveUnitWaiters drain)
+      ioRun (resolveUnitWaiters leftover)
+      return
     flushWrites st
   | .stop =>
     let (drain, idle) ← ioRun (st.modifyGet fun s =>
@@ -295,7 +306,7 @@ partial def flushWrites (st : IO.Ref ConnState) : Async Unit := do
         s.aio.send (concatBytes chunks)
     catch e =>
       ioRun (failWaiters st (toString e))
-      throw e
+      return
     let drain ← ioRun (st.modifyGet fun s =>
       if s.writePendingBytes ≤ writeLowWater then
         (s.writeDrainWaiters, { s with writeDrainWaiters := [] })
@@ -304,8 +315,8 @@ partial def flushWrites (st : IO.Ref ConnState) : Async Unit := do
     ioRun (resolveUnitWaiters drain)
     flushWrites st
 
-/-- Enqueue a complete AMQP burst. Kick a background flusher if idle. Await only
-    when queued bytes exceed `writeHighWater` (asyncio `drain()`). -/
+/-- Enqueue a complete AMQP burst. The connection flusher is already running.
+    Await only when queued bytes exceed `writeHighWater` (asyncio `drain()`). -/
 def sendRawAsync (st : IO.Ref ConnState) (raw : ByteArray) (urgent : Bool := false) : Async Unit := do
   let drainP ← IO.Promise.new
   let outcome ← timedAsync addSendEnqNs do
@@ -315,7 +326,6 @@ def sendRawAsync (st : IO.Ref ConnState) (raw : ByteArray) (urgent : Bool := fal
         (none, s)
       else
         let bytes := s.writePendingBytes + raw.size
-        let kick := !s.writeFlushing
         let s := { s with
           writePending := s.writePending ++ [raw]
           writePendingBytes := bytes
@@ -323,39 +333,27 @@ def sendRawAsync (st : IO.Ref ConnState) (raw : ByteArray) (urgent : Bool := fal
           writeForceFlush := s.writeForceFlush || urgent
         }
         if bytes > writeHighWater then
-          (some (kick, true), { s with writeDrainWaiters := s.writeDrainWaiters ++ [drainP] })
+          (some true, { s with writeDrainWaiters := s.writeDrainWaiters ++ [drainP] })
         else
-          (some (kick, false), s))
+          (some false, s))
   match outcome with
   | none => throw (IO.userError "connection closed")
-  | some (kick, wait) =>
-    if kick then
-      background (try flushWrites st catch _ => pure ())
-    else
-      ioRun (nudgeFlush st)
+  | some wait =>
+    ioRun (nudgeFlush st)
     if wait then
       awaitExceptAsync drainP
 
-/-- Block until `writePending` is empty and the flusher has stopped. -/
+/-- Block until `writePending` is empty. The connection flusher stays running. -/
 def waitWritesIdle (st : IO.Ref ConnState) : Async Unit := do
   let p ← IO.Promise.new
-  let (idle, kick) ← ioRun (st.modifyGet fun s =>
-    if s.closed || (!s.writeFlushing && s.writePending.isEmpty) then
-      ((true, false), s)
-    else if s.writeFlushing then
-      ((false, false), { s with writeIdleWaiters := s.writeIdleWaiters ++ [p] })
+  let idle ← ioRun (st.modifyGet fun s =>
+    if s.closed || s.writePending.isEmpty then
+      (true, s)
     else
-      ((false, true), {
-        s with
-        writeFlushing := true
-        writeIdleWaiters := s.writeIdleWaiters ++ [p]
-      }))
-  if kick then
-    background (try flushWrites st catch _ => pure ())
-  else
-    ioRun (nudgeFlush st)
-  unless idle do
-    awaitExceptAsync p
+      (false, { s with writeIdleWaiters := s.writeIdleWaiters ++ [p] }))
+  if idle then return
+  ioRun (nudgeFlush st)
+  awaitExceptAsync p
 
 /-- Resolve the oldest waiter matching this (ch, class, method). -/
 def resolveMethod1 (st : IO.Ref ConnState) (ch : Nat) (m : Method) : IO Bool := do
@@ -608,9 +606,10 @@ partial def heartbeatLoop (st : IO.Ref ConnState) : Async Unit := do
 
 def startPumpAsync (st : IO.Ref ConnState) : Async Unit := do
   let now ← ioRun IO.monoMsNow
-  modSt st fun x => { x with pumped := true, lastPeerMs := now }
+  modSt st fun x => { x with pumped := true, lastPeerMs := now, writeFlushing := true }
   -- Stay on the default async scheduler. `dedicated` is an OS thread; the
   -- same `SSL*` / UV handle must not be entered from two threads.
+  background (try flushWrites st catch _ => pure ())
   background (pumpLoop st)
   background (heartbeatLoop st)
 
