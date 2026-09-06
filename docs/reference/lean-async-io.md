@@ -56,7 +56,9 @@ remaining complete frame in `buffer` before the next `recv?` (Python
 writes the JSON-RPC reply and the request `basic.ack` in one `aio.send`
 (Python `drain=False` on the reply, drain on the ack). Pumped writes enqueue
 complete bursts on `writePending`; one background flusher concatenates and
-issues a single `aio.send` (no mid-frame splice). The flusher parks until
+issues a single `aio.send` (no mid-frame splice). Flush, pump, and heartbeat
+run under one dedicated supervisor (`Async.concurrentlyAll`) so `connect`
+returning cannot cancel them. The flusher parks until
 `writeBatch` (8 KiB) or a waiter needs the write (`confirm` / method /
 drain / idle / `urgent`); `nudgeFlush` wakes it. Methods, confirm
 publishes, server reply+ack, and RPC reply acks are urgent; firehose

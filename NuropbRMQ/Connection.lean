@@ -355,22 +355,26 @@ def waitWritesIdle (st : IO.Ref ConnState) : Async Unit := do
   ioRun (nudgeFlush st)
   awaitExceptAsync p
 
-/-- Resolve the oldest waiter matching this (ch, class, method). -/
+/-- Resolve the oldest waiter matching this (ch, class, method).
+    One `modifyGet` so a concurrent register cannot be wiped. -/
 def resolveMethod1 (st : IO.Ref ConnState) (ch : Nat) (m : Method) : IO Bool := do
-  let s ← st.get
-  let rec go (xs acc : List MethodWaiter) : IO Bool := do
+  let rec take (xs acc : List MethodWaiter) :
+      List MethodWaiter × Option (IO.Promise (Except IO.Error Method)) :=
     match xs with
-    | [] =>
-      st.modify fun x => { x with methodWaiters := acc.reverse }
-      return false
+    | [] => (acc.reverse, none)
     | w :: rest =>
       if w.ch == ch && w.classId == m.classId && w.methodId == m.methodId then
-        w.promise.resolve (.ok m)
-        st.modify fun x => { x with methodWaiters := acc.reverse ++ rest }
-        return true
+        (acc.reverse ++ rest, some w.promise)
       else
-        go rest (w :: acc)
-  go s.methodWaiters []
+        take rest (w :: acc)
+  let p? ← st.modifyGet fun s =>
+    let (ws, p?) := take s.methodWaiters []
+    (p?, { s with methodWaiters := ws })
+  match p? with
+  | some p =>
+    p.resolve (.ok m)
+    return true
+  | none => return false
 
 def resolveConfirm (st : IO.Ref ConnState) (tag : Nat) (multiple : Bool) : IO Unit := do
   let s ← st.get
@@ -604,22 +608,19 @@ partial def heartbeatLoop (st : IO.Ref ConnState) : Async Unit := do
     pure ()
   heartbeatLoop st
 
-partial def waitUntilClosed (st : IO.Ref ConnState) : Async Unit := do
-  if (← getSt st).closed then return
-  sleep (Std.Time.Millisecond.Offset.ofNat 50)
-  waitUntilClosed st
-
 def startPumpAsync (st : IO.Ref ConnState) : Async Unit := do
   let now ← ioRun IO.monoMsNow
   modSt st fun x => { x with pumped := true, lastPeerMs := now, writeFlushing := true }
-  -- One dedicated worker owns flush + pump + heartbeat for the connection
-  -- lifetime. Default `background` is cancelled when `connect` returns, which
-  -- drops `ofPromise` waiters (CI interop consumer).
+  -- One dedicated supervisor owns flush + pump + heartbeat for the connection
+  -- lifetime. Nested default `background` is still in `connect`'s cancel
+  -- scope and dies when `connect` returns (`ofPromise` → dropped).
+  -- `concurrentlyAll` keeps the three loops as children of that supervisor.
   background (prio := .dedicated) do
-    background (try flushWrites st catch _ => pure ())
-    background (pumpLoop st)
-    background (heartbeatLoop st)
-    waitUntilClosed st
+    let _ ← Async.concurrentlyAll #[
+      (try flushWrites st catch _ => pure ()),
+      pumpLoop st,
+      heartbeatLoop st
+    ]
 
 def expectMethodWaitAsync (st : IO.Ref ConnState) (ch classId methodId : Nat) : Async Method := do
   let s ← getSt st

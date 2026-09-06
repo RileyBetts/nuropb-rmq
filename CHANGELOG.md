@@ -75,6 +75,13 @@ All notable changes to this project are documented in this file.
   `MeshRegistryPublisher` via `api`, AMQPS wrong-hostname
 - Project roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
+### Fixed
+
+- Lean connection workers (flush / pump / heartbeat) stay children of one
+  dedicated supervisor (`Async.concurrentlyAll`). Nested default
+  `background` died when `connect` returned and dropped `ofPromise`
+  waiters (CI `lean_amqps_hello` / interop consumer)
+
 ### Honesty
 
 - Park republish remains at-least-once *delivery* (optional `dedup_window` is
