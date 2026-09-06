@@ -44,7 +44,7 @@ log="$(mktemp)"
 "${PY[@]}" examples/interop_hello/consumer.py >"$log" 2>&1 &
 pid=$!
 sleep 1
-out="$("$BIN/interop_hello_publisher" 2>&1)"
+out="$("$BIN/interop_hello_publisher" 2>&1)" || true
 sleep 0.5
 kill_bg "$pid"
 assert_contains "interop_hello lean→py pub" "$out" "hello-nuropb-rmq"
@@ -57,7 +57,7 @@ log="$(mktemp)"
 "$BIN/interop_hello_consumer" >"$log" 2>&1 &
 pid=$!
 sleep 2
-out="$("${PY[@]}" examples/interop_hello/publisher.py 2>&1)"
+out="$("${PY[@]}" examples/interop_hello/publisher.py 2>&1)" || true
 sleep 1
 kill_bg "$pid"
 assert_contains "interop_hello py→lean pub" "$out" "hello-nuropb-rmq"

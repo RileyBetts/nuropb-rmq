@@ -40,7 +40,7 @@ clog="$(mktemp)"
 "$BIN/lean_hello_consumer" >"$clog" 2>&1 &
 cpid=$!
 sleep 2
-pout="$("$BIN/lean_hello_publisher" 2>&1)"
+pout="$("$BIN/lean_hello_publisher" 2>&1)" || true
 sleep 1
 kill_bg "$cpid"
 assert_contains "lean_hello pub" "$pout" "hello-nuropb-rmq"

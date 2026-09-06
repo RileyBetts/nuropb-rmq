@@ -202,8 +202,10 @@ def failWaiters (st : IO.Ref ConnState) (msg : String) : IO Unit := do
     p.resolve (.error err)
   for p in s.writeIdleWaiters do
     p.resolve (.error err)
+  -- Wake the flusher with ok so it sees `closed` and exits; an error
+  -- here becomes an uncaught "promise linked to the Async was dropped".
   if let some p := s.writeFlushGo then
-    p.resolve (.error err)
+    p.resolve (.ok ())
   st.modify fun x => {
     x with
     lost := some msg
@@ -267,7 +269,8 @@ partial def flushWrites (st : IO.Ref ConnState) : Async Unit := do
       (FlushNext.park parkP, { s with writeFlushGo := some parkP }))
   match next with
   | .park p =>
-    awaitExceptAsync p
+    try awaitExceptAsync p catch _ => pure ()
+    if (← getSt st).closed then return
     flushWrites st
   | .stop =>
     let (drain, idle) ← ioRun (st.modifyGet fun s =>
@@ -327,7 +330,7 @@ def sendRawAsync (st : IO.Ref ConnState) (raw : ByteArray) (urgent : Bool := fal
   | none => throw (IO.userError "connection closed")
   | some (kick, wait) =>
     if kick then
-      background (flushWrites st)
+      background (try flushWrites st catch _ => pure ())
     else
       ioRun (nudgeFlush st)
     if wait then
@@ -348,7 +351,7 @@ def waitWritesIdle (st : IO.Ref ConnState) : Async Unit := do
         writeIdleWaiters := s.writeIdleWaiters ++ [p]
       }))
   if kick then
-    background (flushWrites st)
+    background (try flushWrites st catch _ => pure ())
   else
     ioRun (nudgeFlush st)
   unless idle do
