@@ -54,6 +54,14 @@ provider key; `--smoke` does not.
 See [Local AMQPS harness](../guides/amqps-local.md). Lean mTLS:
 `./scripts/smoke_lean_mtls.sh` (same cert env; `lake build NuropbRMQTls`).
 
+## Lean remasure (not the library)
+
+| Variable | Purpose |
+|----------|---------|
+| `NUROPB_BENCH_IO` | Set `1` to print `lean io_slice` counters from `lean_bench_live` (firehose, RPC/mesh, and `event_fanout`, including `confirm_wait` / `reply_wait`). `./scripts/remeasure_lean_python.sh` defaults this on |
+| `NUROPB_BENCH_SUBS` | Subscriber count for Lean `event_fanout` (default `1`) and `event_fanout_m2m` (default `4`). `event_fanout_3` forces 3 |
+| `NUROPB_BENCH_PUBS` | Independent publisher count for Lean `event_fanout_m2m` (default `4`) |
+
 ## Related
 
 - [Connection config](../concepts/connection-config.md)

@@ -93,6 +93,8 @@ def timed_msgs_per_sec(count: int, wall: float) -> float:
 
 
 class Stopwatch:
+    """Wall for first measured send → last complete. Start after setup/warmup."""
+
     def __init__(self) -> None:
         self._t0 = 0.0
         self.elapsed = 0.0

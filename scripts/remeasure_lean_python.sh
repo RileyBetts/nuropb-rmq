@@ -9,7 +9,7 @@
 #   AMQPS  127.0.0.1:5674   (Docker often owns :5671)
 #
 # Cells: raw firehose (dual-connection), rpc_classic, rpc_mesh_classic,
-# rpc_mesh_quorum (serial + overlap).
+# rpc_mesh_quorum (serial + overlap), event_fanout (1 and 3 subscribers).
 #
 # Inherited NUROPB_RMQ_PORT / NUROPB_RMQ_TLS are ignored so leftover Docker
 # AMQPS env cannot poison the PLAIN cells.
@@ -27,6 +27,9 @@ DO_AMQPS=1
 DO_RAW=0
 DO_RPC=0
 DO_MESH=0
+DO_EVENTS=0
+DO_EVENTS_M2M=0
+DO_RPC_M2M=0
 CELLS_SET=0
 SKIP_BUILD=0
 CA_FILE="${NUROPB_RMQ_CA_FILE:-$ROOT/dev/amqps/ca.pem}"
@@ -43,11 +46,15 @@ Local Homebrew defaults: PLAIN 127.0.0.1:5673, AMQPS 127.0.0.1:5674
   ./scripts/remeasure_lean_python.sh
   ./scripts/remeasure_lean_python.sh --plain --raw
   ./scripts/remeasure_lean_python.sh --plain --rpc --mesh
+  ./scripts/remeasure_lean_python.sh --plain --events --plain-port 5672
+  ./scripts/remeasure_lean_python.sh --plain --events-m2m --rpc-m2m --plain-port 5672
   ./scripts/remeasure_lean_python.sh --amqps --mesh
   ./scripts/remeasure_lean_python.sh --plain-port 5672 --amqps-port 5671
   ./scripts/remeasure_lean_python.sh --passes 1 --skip-build
 
---raw / --rpc / --mesh select cells (default: all).
+--raw / --rpc / --mesh / --events / --events-m2m / --rpc-m2m select cells
+(default: raw,rpc,mesh). Serial RPC is an RTT probe; many-to-many events
+are the trading-shaped capacity cell.
 --plain / --amqps select transport (default: both).
 Inherited NUROPB_RMQ_PORT / NUROPB_RMQ_TLS are ignored.
 EOF
@@ -61,6 +68,9 @@ while [[ $# -gt 0 ]]; do
     --raw) DO_RAW=1; CELLS_SET=1 ;;
     --rpc) DO_RPC=1; CELLS_SET=1 ;;
     --mesh) DO_MESH=1; CELLS_SET=1 ;;
+    --events) DO_EVENTS=1; CELLS_SET=1 ;;
+    --events-m2m) DO_EVENTS_M2M=1; CELLS_SET=1 ;;
+    --rpc-m2m) DO_RPC_M2M=1; CELLS_SET=1 ;;
     --plain-port) PLAIN_PORT="$2"; shift ;;
     --amqps-port) AMQPS_PORT="$2"; shift ;;
     --host) HOST="$2"; shift ;;
@@ -86,8 +96,8 @@ if [[ "$DO_PLAIN" -eq 0 && "$DO_AMQPS" -eq 0 ]]; then
   echo "nothing to run (pass --plain, --amqps, or --both)" >&2
   exit 2
 fi
-if [[ "$DO_RAW" -eq 0 && "$DO_RPC" -eq 0 && "$DO_MESH" -eq 0 ]]; then
-  echo "nothing to run (pass --raw, --rpc, --mesh, or omit for all)" >&2
+if [[ "$DO_RAW" -eq 0 && "$DO_RPC" -eq 0 && "$DO_MESH" -eq 0 && "$DO_EVENTS" -eq 0 && "$DO_EVENTS_M2M" -eq 0 && "$DO_RPC_M2M" -eq 0 ]]; then
+  echo "nothing to run (pass --raw, --rpc, --mesh, --events, --events-m2m, --rpc-m2m, or omit)" >&2
   exit 2
 fi
 
@@ -95,6 +105,9 @@ CELLS=""
 [[ "$DO_RAW" -eq 1 ]] && CELLS="${CELLS:+$CELLS,}raw"
 [[ "$DO_RPC" -eq 1 ]] && CELLS="${CELLS:+$CELLS,}rpc"
 [[ "$DO_MESH" -eq 1 ]] && CELLS="${CELLS:+$CELLS,}mesh"
+[[ "$DO_EVENTS" -eq 1 ]] && CELLS="${CELLS:+$CELLS,}events"
+[[ "$DO_EVENTS_M2M" -eq 1 ]] && CELLS="${CELLS:+$CELLS,}events_m2m"
+[[ "$DO_RPC_M2M" -eq 1 ]] && CELLS="${CELLS:+$CELLS,}rpc_m2m"
 
 probe() {
   local port="$1"
@@ -128,6 +141,7 @@ run_lean_cell() {
     NUROPB_BENCH_COUNT="$count" \
     NUROPB_BENCH_SIZE="$size" \
     NUROPB_BENCH_QUEUE="$queue" \
+    NUROPB_BENCH_IO="${NUROPB_BENCH_IO:-1}" \
     "$LEAN"
 }
 
@@ -158,11 +172,27 @@ run_lean_mesh() {
   run_lean_cell rpc_mesh_quorum_overlap 400 64 "nr.bench.lean.${tag}.mqo"
 }
 
+run_lean_events() {
+  local tag="$1"
+  run_lean_cell event_fanout 2000 64 "nr.bench.lean.${tag}.ev1"
+  run_lean_cell event_fanout_3 2000 64 "nr.bench.lean.${tag}.ev3"
+}
+
+run_lean_events_m2m() {
+  local tag="$1"
+  NUROPB_BENCH_PUBS=4 NUROPB_BENCH_SUBS=4 \
+    run_lean_cell event_fanout_m2m 200 64 "nr.bench.lean.${tag}.m2m"
+  NUROPB_BENCH_PUBS=4 NUROPB_BENCH_SUBS=4 \
+    run_lean_cell event_fanout_m2m_durable 100 64 "nr.bench.lean.${tag}.m2md"
+}
+
 run_lean_pass() {
   local tag="$1" serial="$2"
   if [[ "$DO_RAW" -eq 1 ]]; then run_lean_raw "$tag" "$serial"; fi
   if [[ "$DO_RPC" -eq 1 ]]; then run_lean_rpc "$tag"; fi
   if [[ "$DO_MESH" -eq 1 ]]; then run_lean_mesh "$tag"; fi
+  if [[ "$DO_EVENTS" -eq 1 ]]; then run_lean_events "$tag"; fi
+  if [[ "$DO_EVENTS_M2M" -eq 1 ]]; then run_lean_events_m2m "$tag"; fi
 }
 
 export NUROPB_RMQ_HOST="$HOST"

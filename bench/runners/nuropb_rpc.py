@@ -44,30 +44,34 @@ async def run_rpc_exclusive(
     server = RpcServer(cfg, queue=queue, handler=handler)
     await server.start()
 
-    async def client_worker(n: int) -> None:
-        session = Session(cfg)
-        await session.start()
-        client = RpcClient(session)
-        loop = asyncio.get_running_loop()
-        try:
-            for _ in range(n):
-                t0 = loop.time()
-                await client.request(queue, "bench.echo", {"b": payload})
-                latencies.append(loop.time() - t0)
-        finally:
-            await session.close()
-
     per = message_count // concurrency
     rem = message_count % concurrency
+    clients: list[tuple[Session, RpcClient]] = []
+    for _ in range(concurrency):
+        session = Session(cfg)
+        await session.start()
+        clients.append((session, RpcClient(session)))
+    for _session, client in clients:
+        await client.request(queue, "bench.echo", {"b": payload})
+
+    async def client_worker(client: RpcClient, n: int) -> None:
+        loop = asyncio.get_running_loop()
+        for _ in range(n):
+            t0 = loop.time()
+            await client.request(queue, "bench.echo", {"b": payload})
+            latencies.append(loop.time() - t0)
+
     try:
         with Stopwatch() as sw:
             await asyncio.gather(
                 *[
-                    client_worker(per + (1 if i < rem else 0))
+                    client_worker(clients[i][1], per + (1 if i < rem else 0))
                     for i in range(concurrency)
                 ]
             )
     finally:
+        for session, _client in clients:
+            await session.close()
         await server.close()
 
     p50, p99 = summarize_latencies_ms(latencies)

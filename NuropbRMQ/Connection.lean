@@ -15,6 +15,7 @@ import NuropbRMQ.Config
 import NuropbRMQ.Socket
 import NuropbRMQ.Transport
 import NuropbRMQ.AsyncTransport
+import NuropbRMQ.IoStats
 
 /-!
 PLAIN AMQP 0-9-1 connection. Handshake and ops use proven `tryStep` / `legalSend`.
@@ -85,6 +86,8 @@ structure ConnState where
   writeFlushing : Bool := false
   writeDrainWaiters : List (IO.Promise (Except IO.Error Unit)) := []
   writeIdleWaiters : List (IO.Promise (Except IO.Error Unit)) := []
+  writeForceFlush : Bool := false
+  writeFlushGo : Option (IO.Promise (Except IO.Error Unit)) := none
 
 def recvChunk : Nat := 65536
 
@@ -93,6 +96,19 @@ def writeHighWater : Nat := 65536
 
 /-- Resume drain waiters at a quarter of the high-water (asyncio low-water). -/
 def writeLowWater : Nat := 16384
+
+/-- Coalesce complete bursts until this many queued bytes, unless a waiter needs the write now. -/
+def writeBatch : Nat := 8192
+
+def ConnState.shouldFlushNow (s : ConnState) : Bool :=
+  !s.writePending.isEmpty && (
+    s.writeForceFlush ||
+    s.writePendingBytes ≥ writeBatch ||
+    s.writePendingBytes > writeHighWater ||
+    !s.confirmWaiters.isEmpty ||
+    !s.methodWaiters.isEmpty ||
+    !s.writeIdleWaiters.isEmpty ||
+    !s.writeDrainWaiters.isEmpty)
 
 def ConnState.avail (s : ConnState) : Nat :=
   s.buffer.size - s.bufOff
@@ -186,6 +202,8 @@ def failWaiters (st : IO.Ref ConnState) (msg : String) : IO Unit := do
     p.resolve (.error err)
   for p in s.writeIdleWaiters do
     p.resolve (.error err)
+  if let some p := s.writeFlushGo then
+    p.resolve (.error err)
   st.modify fun x => {
     x with
     lost := some msg
@@ -201,6 +219,8 @@ def failWaiters (st : IO.Ref ConnState) (msg : String) : IO Unit := do
     writeFlushing := false
     writeDrainWaiters := []
     writeIdleWaiters := []
+    writeForceFlush := false
+    writeFlushGo := none
   }
 
 def concatBytes (xs : List ByteArray) : ByteArray :=
@@ -216,76 +236,121 @@ def resolveUnitWaiters (ps : List (IO.Promise (Except IO.Error Unit))) : IO Unit
   for p in ps do
     p.resolve (.ok ())
 
+/-- Wake a parked flusher so it rechecks `shouldFlushNow`. -/
+def nudgeFlush (st : IO.Ref ConnState) : IO Unit := do
+  let p? ← st.modifyGet fun s =>
+    match s.writeFlushGo with
+    | some p => (some p, { s with writeFlushGo := none })
+    | none => (none, s)
+  if let some p := p? then
+    p.resolve (.ok ())
+
 /-- Drain `writePending` into one `aio.send`. Complete bursts only (no mid-frame splice).
-    One outstanding send per connection. Drain waiters resume at `writeLowWater`;
-    idle waiters resume when the queue is empty. -/
+    One outstanding send per connection. Park until `writeBatch` or a waiter
+    needs the write (confirm / method / drain / idle / `urgent`). Drain waiters
+    resume at `writeLowWater`; idle waiters when the queue is empty. -/
+inductive FlushNext where
+  | send
+  | stop
+  | park (p : IO.Promise (Except IO.Error Unit))
+
 partial def flushWrites (st : IO.Ref ConnState) : Async Unit := do
-  let chunks ← ioRun (st.modifyGet fun s =>
-    (s.writePending, { s with writePending := [], writePendingBytes := 0 }))
-  if chunks.isEmpty then
-    let (again, drain, idle) ← ioRun (st.modifyGet fun s =>
-      if s.writePending.isEmpty then
-        ((false, s.writeDrainWaiters, s.writeIdleWaiters),
-          { s with
-            writeFlushing := false
-            writeDrainWaiters := []
-            writeIdleWaiters := [] })
-      else
-        ((true, [], []), s))
+  let parkP ← IO.Promise.new
+  let next ← ioRun (st.modifyGet fun s =>
+    if s.closed then
+      (FlushNext.stop, { s with writeFlushing := false, writeFlushGo := none })
+    else if s.shouldFlushNow then
+      (FlushNext.send, { s with writeFlushGo := none })
+    else if s.writePending.isEmpty then
+      (FlushNext.stop, { s with writeFlushing := false, writeFlushGo := none })
+    else
+      (FlushNext.park parkP, { s with writeFlushGo := some parkP }))
+  match next with
+  | .park p =>
+    awaitExceptAsync p
+    flushWrites st
+  | .stop =>
+    let (drain, idle) ← ioRun (st.modifyGet fun s =>
+      ((s.writeDrainWaiters, s.writeIdleWaiters),
+        { s with writeDrainWaiters := [], writeIdleWaiters := [] }))
     ioRun (resolveUnitWaiters drain)
     ioRun (resolveUnitWaiters idle)
-    if again then flushWrites st
-    return
-  let s ← getSt st
-  if s.closed then return
-  try
-    s.aio.send (concatBytes chunks)
-  catch e =>
-    ioRun (failWaiters st (toString e))
-    throw e
-  let drain ← ioRun (st.modifyGet fun s =>
-    if s.writePendingBytes ≤ writeLowWater then
-      (s.writeDrainWaiters, { s with writeDrainWaiters := [] })
-    else
-      ([], s))
-  ioRun (resolveUnitWaiters drain)
-  flushWrites st
+  | .send =>
+    let chunks ← ioRun (st.modifyGet fun s =>
+      (s.writePending, { s with
+        writePending := []
+        writePendingBytes := 0
+        writeForceFlush := false }))
+    if chunks.isEmpty then
+      flushWrites st
+      return
+    let s ← getSt st
+    if s.closed then return
+    try
+      timedAsync addAioSendNs do
+        ioRun bumpUvWrite
+        s.aio.send (concatBytes chunks)
+    catch e =>
+      ioRun (failWaiters st (toString e))
+      throw e
+    let drain ← ioRun (st.modifyGet fun s =>
+      if s.writePendingBytes ≤ writeLowWater then
+        (s.writeDrainWaiters, { s with writeDrainWaiters := [] })
+      else
+        ([], s))
+    ioRun (resolveUnitWaiters drain)
+    flushWrites st
 
 /-- Enqueue a complete AMQP burst. Kick a background flusher if idle. Await only
     when queued bytes exceed `writeHighWater` (asyncio `drain()`). -/
-def sendRawAsync (st : IO.Ref ConnState) (raw : ByteArray) : Async Unit := do
+def sendRawAsync (st : IO.Ref ConnState) (raw : ByteArray) (urgent : Bool := false) : Async Unit := do
   let drainP ← IO.Promise.new
-  let outcome ← ioRun (st.modifyGet fun s =>
-    if s.closed then
-      (none, s)
-    else
-      let bytes := s.writePendingBytes + raw.size
-      let kick := !s.writeFlushing
-      let s := { s with
-        writePending := s.writePending ++ [raw]
-        writePendingBytes := bytes
-        writeFlushing := true
-      }
-      if bytes > writeHighWater then
-        (some (kick, true), { s with writeDrainWaiters := s.writeDrainWaiters ++ [drainP] })
+  let outcome ← timedAsync addSendEnqNs do
+    ioRun bumpRefMod
+    ioRun (st.modifyGet fun s =>
+      if s.closed then
+        (none, s)
       else
-        (some (kick, false), s))
+        let bytes := s.writePendingBytes + raw.size
+        let kick := !s.writeFlushing
+        let s := { s with
+          writePending := s.writePending ++ [raw]
+          writePendingBytes := bytes
+          writeFlushing := true
+          writeForceFlush := s.writeForceFlush || urgent
+        }
+        if bytes > writeHighWater then
+          (some (kick, true), { s with writeDrainWaiters := s.writeDrainWaiters ++ [drainP] })
+        else
+          (some (kick, false), s))
   match outcome with
   | none => throw (IO.userError "connection closed")
   | some (kick, wait) =>
     if kick then
       background (flushWrites st)
+    else
+      ioRun (nudgeFlush st)
     if wait then
       awaitExceptAsync drainP
 
 /-- Block until `writePending` is empty and the flusher has stopped. -/
 def waitWritesIdle (st : IO.Ref ConnState) : Async Unit := do
   let p ← IO.Promise.new
-  let idle ← ioRun (st.modifyGet fun s =>
+  let (idle, kick) ← ioRun (st.modifyGet fun s =>
     if s.closed || (!s.writeFlushing && s.writePending.isEmpty) then
-      (true, s)
+      ((true, false), s)
+    else if s.writeFlushing then
+      ((false, false), { s with writeIdleWaiters := s.writeIdleWaiters ++ [p] })
     else
-      (false, { s with writeIdleWaiters := s.writeIdleWaiters ++ [p] }))
+      ((false, true), {
+        s with
+        writeFlushing := true
+        writeIdleWaiters := s.writeIdleWaiters ++ [p]
+      }))
+  if kick then
+    background (flushWrites st)
+  else
+    ioRun (nudgeFlush st)
   unless idle do
     awaitExceptAsync p
 
@@ -322,7 +387,8 @@ def resolveConfirm (st : IO.Ref ConnState) (tag : Nat) (multiple : Bool) : IO Un
       st.modify fun x => { x with confirmWaiters := x.confirmWaiters.erase tag }
     | none => pure ()
 
-def offerDeliver (st : IO.Ref ConnState) (msg : IncomingMessage) : IO Unit := do
+def offerDeliver (st : IO.Ref ConnState) (msg : IncomingMessage) : IO Unit := timedIo addOfferNs do
+  bumpRefMod
   let rid := msg.properties.correlationId
   let hit ← st.modifyGet fun s =>
     match rid with
@@ -342,20 +408,20 @@ def offerDeliver (st : IO.Ref ConnState) (msg : IncomingMessage) : IO Unit := do
   | some p => p.resolve (.ok msg)
   | none => pure ()
 
-def sendFrameAsync (st : IO.Ref ConnState) (f : Frame) : Async Unit := do
+def sendFrameAsync (st : IO.Ref ConnState) (f : Frame) (urgent : Bool := true) : Async Unit := do
   let s ← getSt st
   match encodeFrame f s.frameMax with
   | none => throw (IO.userError "encodeFrame failed (frame_max)")
   | some raw =>
     if s.pumped then
-      sendRawAsync st raw
+      sendRawAsync st raw (urgent := urgent)
     else
       s.aio.send raw
 
-def sendMethodAsync (st : IO.Ref ConnState) (ch : Nat) (m : Method) : Async Unit := do
+def sendMethodAsync (st : IO.Ref ConnState) (ch : Nat) (m : Method) (urgent : Bool := true) : Async Unit := do
   match encodeMethod m with
   | none => throw (IO.userError s!"encodeMethod failed {m.classId}.{m.methodId}")
-  | some payload => sendFrameAsync st { kind := .method, channel := ch, payload }
+  | some payload => sendFrameAsync st { kind := .method, channel := ch, payload } (urgent := urgent)
 
 /-- One AMQP method+content: one encode + one `aio.send` (Python coalesce + `_drain`). -/
 def sendBurstAsync (st : IO.Ref ConnState) (frames : List Frame) : Async Unit := do
@@ -364,7 +430,7 @@ def sendBurstAsync (st : IO.Ref ConnState) (frames : List Frame) : Async Unit :=
   | none => throw (IO.userError "encodeBurst failed (frame_max)")
   | some raw =>
     if s0.pumped then
-      sendRawAsync st raw
+      sendRawAsync st raw (urgent := true)
     else
       s0.aio.send raw
 
@@ -375,12 +441,16 @@ partial def fillAtLeastAio (st : IO.Ref ConnState) (n : Nat) : Async Unit := do
   if s.bufOff > 0 then
     modSt st fun x => x.compact
   let s ← getSt st
-  match ← s.aio.recv? recvChunk with
+  match ← timedAsync addRecvNs do
+      ioRun bumpRecvCall
+      s.aio.recv? recvChunk
+  with
   | none =>
     ioRun (failWaiters st "connection closed")
     throw (IO.userError "connection closed")
   | some chunk =>
     -- Watchdog timestamp is updated on heartbeat / idle, not every socket read.
+    ioRun bumpRefMod
     modSt st fun x => { x with buffer := x.buffer ++ chunk }
     fillAtLeastAio st n
 
@@ -392,7 +462,7 @@ def ConnState.hasCompleteFrame (s : ConnState) : Bool :=
     | some (size, _) => s.avail ≥ 8 + size
 
 /-- Decode one frame already in `buffer`. No `recv?`. -/
-def tryReadFrame (st : IO.Ref ConnState) : Async (Option Frame) := do
+def tryReadFrame (st : IO.Ref ConnState) : Async (Option Frame) := timedAsync addTryReadNs do
   let s ← getSt st
   if s.closed || !s.hasCompleteFrame then return none
   match getU32be s.buffer (s.bufOff + 3) with
@@ -403,6 +473,7 @@ def tryReadFrame (st : IO.Ref ConnState) : Async (Option Frame) := do
     match decodeFrame s.buffer s.frameMax s.bufOff with
     | none => throw (IO.userError "decodeFrame failed")
     | some (fr, next) =>
+      ioRun bumpRefMod
       modSt st fun x =>
         ({ x with bufOff := next }).compactIfNeeded
       return some fr
@@ -430,9 +501,12 @@ partial def assembleContentAio (st : IO.Ref ConnState) (channelId : Nat) : Async
   else if fr.kind != .header || fr.channel != channelId then
     throw (IO.userError "expected content header")
   else
-    match decodeContentHeader fr.payload with
-    | none => throw (IO.userError "decodeContentHeader failed")
-    | some (_, bodySize, props) =>
+    match ← timedAsync addAssembleNs do
+      match decodeContentHeader fr.payload with
+      | none => throw (IO.userError "decodeContentHeader failed")
+      | some hdr => return hdr
+    with
+    | (_, bodySize, props) =>
       if bodySize == 0 then
         return (props, ByteArray.empty)
       let mut body := ByteArray.emptyWithCapacity bodySize
@@ -442,7 +516,7 @@ partial def assembleContentAio (st : IO.Ref ConnState) (channelId : Nat) : Async
         if bf.kind != .body then throw (IO.userError "expected body frame")
         if body.size == 0 && bf.payload.size == bodySize then
           return (props, bf.payload)
-        body := body ++ bf.payload
+        body := (← timedAsync addAssembleNs (pure (body ++ bf.payload)))
       return (props, body)
 
 def dispatchMethod (st : IO.Ref ConnState) (fr : Frame) (m : Method) : Async Unit := do
@@ -865,11 +939,13 @@ def basicPublishKickAsync (c : AmqpConnection) (channelId : Nat) (body : ByteArr
       nextConfirm := x.nextConfirm + 1
       confirmWaiters := x.confirmWaiters.insert x.nextConfirm p
     }
-  let raw ← ioRun (encodePublish channelId body exchange routingKey props mandatory s.frameMax)
+  let raw ← ioRun (timedIo addEncodeNs (encodePublish channelId body exchange routingKey props mandatory s.frameMax))
   if s.pumped then
     sendRawAsync c.st raw
   else
-    s.aio.send raw
+    timedAsync addAioSendNs do
+      ioRun bumpUvWrite
+      s.aio.send raw
   if confirmP.isNone && (wantConfirm || (← getSt c.st).confirmEnabled) then
     let _ ← expectMethodWaitAsync c.st channelId BASIC BASIC_ACK
   return confirmP
@@ -895,7 +971,7 @@ def publishAndAckAsync (c : AmqpConnection) (channelId : Nat) (body : ByteArray)
   let pub ← ioRun (encodePublish channelId body exchange routingKey props false s.frameMax)
   let ack ← ioRun (encodeAckFrame channelId deliveryTag s.frameMax)
   if s.pumped then
-    sendRawAsync c.st (pub ++ ack)
+    sendRawAsync c.st (pub ++ ack) (urgent := true)
   else
     s.aio.send (pub ++ ack)
 
@@ -907,11 +983,13 @@ def basicConsume (c : AmqpConnection) (channelId : Nat) (queue : String) : Async
   let ok ← expectMethodWaitAsync c.st channelId BASIC BASIC_CONSUME_OK
   return argStr ok.args "consumer_tag"
 
-def basicAckAsync (c : AmqpConnection) (channelId deliveryTag : Nat) : Async Unit :=
-  sendMethodAsync c.st channelId {
-    classId := BASIC, methodId := BASIC_ACK
-    args := [("delivery_tag", .int deliveryTag)]
-  }
+def basicAckAsync (c : AmqpConnection) (channelId deliveryTag : Nat)
+    (urgent : Bool := false) : Async Unit :=
+  timedAsync addAckNs do
+    sendMethodAsync c.st channelId {
+      classId := BASIC, methodId := BASIC_ACK
+      args := [("delivery_tag", .int deliveryTag)]
+    } (urgent := urgent)
 
 def basicAck (c : AmqpConnection) (channelId deliveryTag : Nat) : Async Unit :=
   basicAckAsync c channelId deliveryTag

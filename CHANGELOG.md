@@ -21,7 +21,34 @@ All notable changes to this project are documented in this file.
   `encodePublish` for small bodies; single-body inbound slice
 - Lean write-combine: pumped `sendRawAsync` enqueues complete bursts;
   `flushWrites` concatenates into one `aio.send`. Await `uv_write` only
-  above a 64 KiB watermark (asyncio `drain()`); `close` waits until idle
+  above a 64 KiB watermark (asyncio `drain()`); `close` waits until idle.
+  Flusher parks until `writeBatch` or a confirm / method / idle /
+  `urgent` waiter; firehose consume acks stay batched; benches
+  `waitWritesIdle` after the publish loop
+- Lean remasure slices: `NUROPB_BENCH_IO=1` times encode / enqueue /
+  `aio.send` / `recv?` / assemble / offer / ack / confirm-wait /
+  reply-wait on `lean_bench_live` (firehose, RPC/mesh, and
+  `event_fanout`)
+- Lean vs Python `event_fanout` remasure (1 and 3 exclusive
+  subscribers) on `lean_bench_live` / `bench.remeasure_io` /
+  `./scripts/remeasure_lean_python.sh --events`
+- Event durability opt-in: durable exchange, named durable subscriber
+  queues, publisher confirms / `mandatory` when the profile is durable;
+  Lean `wantConfirm` parity. Defaults stay a lossy live bus. See
+  [`docs/concepts/events-durability.md`](docs/concepts/events-durability.md)
+- Many-to-many remasure: `P` publishers × `M` subscribers (lossy +
+  durable) via `--events-m2m`; optional `rpc_m2m` (independent async
+  clients × competing mesh backends). Serial RPC is an RTT probe, not
+  a capacity claim
+- Remasure wall is first measured send → last complete. Declare, bind,
+  consume, `confirm.select`, session start, and one warmup round-trip
+  stay outside the clock (including Lean durable `event_fanout_m2m`)
+- Full remasure 2026-09-06 (Docker PLAIN `:5672` + AMQPS `:5671`, two
+  passes, all cells including `events_m2m` / `rpc_m2m`) recorded in
+  [`docs/concepts/performance.md`](docs/concepts/performance.md)
+- `bench.compare` default pika peer is `AsyncioConnection` (same
+  event loop as nuropb-rmq). `BlockingConnection` is
+  `--pika-io blocking`, not the fair compare
 - Optional AMQPS via `NuropbRMQTls.connectAsync` (`tls-verify-full` PEM;
   UV-loop memory BIO / `SSL_ERROR_WANT_*`; no `SSL_set_fd`)
 - Lean ↔ Python interop, Lean AMQPS, Lean IO coverage, and Lean reply-forge 403
@@ -58,6 +85,9 @@ All notable changes to this project are documented in this file.
 - Lean TLS is UV-loop memory BIO / `SSL_ERROR_WANT_*`. Python AMQPS is
   stdlib `ssl` on the asyncio loop. Laptop remasure is not an AMQPS SLO
 - HMAC / SHA-256 hardness and the full RabbitMQ regex engine / HA stay residual
+- EventPublisher / EventSubscriber **defaults** are a lossy live bus
+  (no confirm, exclusive auto-delete queues). Durable fan-out is opt-in.
+  Mesh/RPC work-queue durability is competing consumers, not broadcast
 - Lean raw firehose is in the same band as Python on a laptop PLAIN broker,
   not a 17k msgs/s SLO (that figure was POSIX steal-the-socket)
 - Python `AmqpConnection.close` does not fail raw confirm / `receive` waiters

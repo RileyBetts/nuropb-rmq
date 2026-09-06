@@ -1,9 +1,10 @@
 # Performance
 
 nuropb-rmq is an asyncio-native AMQP 0-9-1 client. Runtime code does not
-depend on pika. A comparison harness under [`bench/`](../../bench/) can still
-run **pika** (`BlockingConnection` + threads) as a baseline when you install
-the optional `[bench]` extra.
+depend on pika. A comparison harness under [`bench/`](../../bench/) runs
+**pika `AsyncioConnection`** (same event loop) when you install the
+optional `[bench]` extra. `BlockingConnection` + threads is a different
+IO model (`--pika-io blocking`), not the fair peer.
 
 These figures are **one laptop run**, not a service-level objective. Re-run
 on the hardware and broker you ship if you need capacity numbers.
@@ -21,37 +22,58 @@ subscribers.
 | Pika `amq.rabbitmq.reply-to` | Broker shortcut RPC; nuropb does not use it — a ceiling for “minimal AMQP RPC on this box” |
 | Event fanout | One publish copied to N subscribers. Rate is **publishes**; the run waits until every subscriber has seen every message |
 
-Recorded run (2026-09-01): Docker RabbitMQ 3.13.7, PLAIN on `127.0.0.1:5672`
-(no TLS), Python 3.12.12, pika 1.4.4, Intel Core i7-8850H, macOS 15. The
-harness writes JSON under [`bench/results/`](../../bench/results/).
+Every remasure and `bench.compare` cell clocks **first measured send → last
+complete** (ack, last fan-out copy, or RPC reply). Queue declare, bind,
+`basic.consume`, `confirm.select`, session start, and one warmup
+round-trip are **outside** the wall. Do not treat setup as throughput.
+
+Recorded **blocking** pika run (2026-09-01): Docker RabbitMQ 3.13.7, PLAIN
+on `127.0.0.1:5672` (no TLS), Python 3.12.12, pika 1.4.4, Intel Core
+i7-8850H, macOS 15. That run is **not** apples-to-apples. Fair cells
+(2026-09-05, same laptop, Docker `:5672`, pika 1.4.4
+`AsyncioConnection`, 2000 msgs, conc 1) are in **How to read** below.
+The harness writes JSON under [`bench/results/`](../../bench/results/).
 
 ## How to read the numbers
 
-**Firehose (raw + fanout).** At 64-byte and 1 KiB bodies, nuropb-rmq moved
-about **2×–3×** as many messages per second as blocking pika (for example
-~5,800 vs ~2,000 msgs/s raw at 64 bytes, one publisher). At **16 KiB** both
-clients sat in the same band (~1,500–1,650 msgs/s raw): broker copies and
-Docker networking dominate, not the Python client. Extra publishers did not
-help raw consume much — there is still one consumer.
+**Firehose (raw + fanout).** The fair peer is asyncio pika, not
+`BlockingConnection`. Docker PLAIN `:5672`, 2000 msgs, conc 1,
+2026-09-06 (`bench/results/20260906T114609Z.json`), clock is first
+measured send → last complete:
 
-Raw “p50 latency” in the JSON is **queueing delay in a 10,000-message burst**,
-not single-message RTT. Prefer messages/second for that scenario.
+| Workload | nuropb-rmq | pika asyncio |
+|----------|------------|--------------|
+| Raw 64 B | **2725** | 1720 |
+| Raw 1 KiB | **3637** | 2020 |
+| Fanout 64 B, 1 sub | **2731** | 2102 |
+| Fanout 64 B, 3 sub | **1589** | 1265 |
 
-**Request/reply.** Pika’s blocking exclusive-queue loop is faster. One client,
-small request: on the order of **~145 round trips/s** for nuropb (median
-~6–7 ms) vs **~250/s** for pika (median ~4 ms). Eight parallel clients:
-roughly **~690/s** vs **~770/s**; pika `direct-reply-to` was a bit higher
-still (~900/s). Plan mesh RPC as **hundreds of JSON-RPC round trips per
-second per process** on similar hardware, not thousands.
+The older **2×–3×** line compared nuropb to **blocking** pika and is
+not a client win.
 
-That split is expected: cost sits on the session / exclusive reply queue /
-JSON-RPC envelope, not on shoving bytes at a queue.
+Raw “p50 latency” in the JSON is **queueing delay in a burst**, not
+single-message RTT. Prefer messages/second for that scenario.
+
+**Request/reply is off the FIX critical path.** One `Session` doing
+hundreds of serial requests is an **RTT probe**, not a capacity number.
+Real RPC load is many independent clients, each with a modest in-flight
+window, and (if scaled) competing backends — `rpc_m2m` in
+`remeasure_io`. Asyncio pika’s exclusive stub is still faster on the
+serial cell (64 B: **140**/s vs **51**/s) because it has **no publisher
+confirms**. Do not drop confirms to match it.
+
+**Events (trading shape).** Defaults are a **lossy live bus**. Durable
+fan-out (confirm + named queue per consumer) is a different cell — do
+not mix rates. Many-to-many capacity is `P` publisher connections × `M`
+subscriber connections (`--events-m2m`), not 1 pub × 1–3 exclusive
+subs. See [events durability](events-durability.md).
 
 ## What this does not claim
 
 - TLS, clustering, quorum queues, or a long-warmed broker
-- Fairness vs pika’s asyncio adapter (the harness uses `BlockingConnection`)
+- A 2×–3× firehose win vs pika — that figure was `BlockingConnection`
 - A production SLO — rerun `python -m bench.compare` where you deploy
+  (default `--pika-io asyncio`)
 - Lean vs Python capacity numbers as a guarantee. See **Lean vs Python IO**
   below. Overlap smoke (`smoke_lean_rpc_overlap.sh`) is a correctness gate,
   not an SLO.
@@ -213,25 +235,169 @@ Raw and mesh-AMQPS rows are the earlier fair remasure (unchanged path).
 | `rpc_mesh_quorum` overlap | 1 / 2 | 887 / 610 | **1209** / **1226** |
 
 Lean `pumpDrain` did **not** move firehose. Awaiting every `uv_write` did:
-PLAIN raw 64 B went from ~3.2k to ~5.7k msgs/s (above the old one-connection
-~4.9k cell). Python still leads (~9.3k). That is not a 9k claim. PLAIN RPC
-stays in the same band after confirm∥reply. AMQPS overlap is still Lean-led.
-`rpc_mesh_classic` sits near `rpc_classic`. `rpc_mesh_quorum` is slower —
-do not treat an exclusive-queue RPC win as a mesh win. Quorum + DLX is the
-production mesh bound.
+PLAIN raw 64 B went from ~3.2k to ~5.7k msgs/s. Parking until `writeBatch`
+(8 KiB) or an urgent waiter cut `uv_write`s from ~2000 to **~43** per
+2000 × 64 B. Docker PLAIN `:5672` (Homebrew error that evening): Lean
+**4716 / 4709** vs Python **3176 / 3115** (timers on). The Homebrew
+~9.3k Python row above is a different path and was not re-tested. PLAIN
+session RPC stays in band with Python on the same run. `rpc_mesh_classic`
+serial is noisy (511 / 322); overlap on the same hop is ~1.6k.
+`rpc_mesh_quorum` serial sits next to mesh classic serial — broker-bound.
+
+### Lean firehose slices (`NUROPB_BENCH_IO=1`)
+
+Flagged counters on `lean_bench_live` (same Homebrew PLAIN dual-conn cell,
+same day). Exclusive assemble (header decode + body copy only) and
+`recv?` count show the leftover is not another decode pass.
+
+| Slice (64 B, mean of two passes) | per msg |
+|----------------------------------|---------|
+| `aio.send` wait (`uv_write` complete) | **~143 µs** |
+| `basicAck` (encode + enqueue) | ~36 µs |
+| `tryReadFrame` / `offerDeliver` | ~16–17 µs each |
+| `recv?` | ~13 µs (8 calls / 2000 msgs) |
+| `encodePublish` / send enqueue | ~7–10 µs |
+| assemble (exclusive) | **~0.4 µs** |
+
+After park-until-`writeBatch` (2026-09-05 evening, Docker PLAIN `:5672`,
+`NUROPB_BENCH_IO=1`):
+
+| Slice (64 B) | Pass 1 / 2 |
+|--------------|------------|
+| `uv_writes` / 2000 msgs | **43** / **42** (was ~235, then ~2000) |
+| `aio.send` per msg | **7 µs** / **14 µs** (was ~143 µs) |
+| assemble | ~0.5 µs / ~0.4 µs |
+| Lean msgs/s | **4716** / **4709** |
+| Python msgs/s (same run) | 3176 / 3115 |
+
+In-repo coalesce is done. On this Docker path Lean leads. A healthy
+Homebrew remasure is the check against the ~9.3k loopback ceiling.
+Do not spend another slice on assemble or `pumpDrain`.
+
+### Event fanout (Lean first-class, 2026-09-05)
+
+Same Docker PLAIN `:5672` path. One auto-delete **fanout** exchange;
+exclusive auto-delete queues; per-delivery ack. 2000 × 64 B
+`encodeNotification` / `publish`. Rate is **publishes**; wall waits
+until every subscriber has every message (`count * subs` receives).
+Publisher calls `waitWritesIdle` after the publish loop (same tail as
+firehose). Wall excludes declare / bind / confirm.select and one warmup
+publish. Not `bench.compare` / pika — Lean vs Python nuropb only.
+Not an SLO.
+
+| Workload | Pass | Python | Lean |
+|----------|------|--------|------|
+| `event_fanout` 1 sub | 1 / 2 | 2213 / 2771 | **4406** / **4685** |
+| `event_fanout` 3 sub | 1 / 2 | 1454 / 1226 | **2490** / **2702** |
+
+Lean leads both **lossy 1-pub** cells. The 3-sub drop is wait-for-N.
+That is **not** trading at-least-once (exclusive auto-delete queues).
+Capacity shape is `--events-m2m` (`P` pubs × `M` subs, lossy and
+durable columns). Serial RPC remains an RTT probe only.
+
+Pika exclusive RPC on 2026-09-06, **asyncio** peer
+(`bench.compare --pika-io asyncio`, 2000 msgs, conc 1, 64 B) was **123**
+vs nuropb **83** (p50 7.4 vs 10.9 ms). Direct-reply ceiling **153**.
+Both pika cells are a **no-confirm** stub, not a write-path hunt.
+Product overlap stays Lean-led (`rpc_classic` overlap in the table
+below).
+
+## Full remasure 2026-09-06 (post clock fix)
+
+Same i7-8850H laptop. Docker `rmq-plain` on `127.0.0.1:5672` and
+`rmq-amqps-mtls` on `127.0.0.1:5671`. Two passes. Wall is **first
+measured send → last complete**; declare / bind / consume /
+`confirm.select` / session start / one warmup are outside the clock.
+Log: [`bench/results/remeasure_20260906T1139Z.log`](../../bench/results/remeasure_20260906T1139Z.log).
+Not an SLO. Homebrew `:5673` / `:5674` was **not** re-run (service in
+error). Lean has no `rpc_m2m` cell.
+
+### PLAIN Docker (`:5672`, raw = firehose)
+
+| Workload | Pass | Python | Lean |
+|----------|------|--------|------|
+| Raw 64 B | 1 / 2 | 2984 / 2675 | **4954** / **5249** |
+| Raw 1 KiB | 1 / 2 | 2982 / 3860 | **4823** / **4806** |
+| Raw 16 KiB | 1 / 2 | 959 / 779 | **1098** / **1168** |
+| `rpc_classic` serial | 1 / 2 | 130 / 131 | **157** / **164** |
+| `rpc_classic` overlap | 1 / 2 | 563 / 571 | **1103** / **965** |
+| `rpc_mesh_classic` serial | 1 / 2 | 77 / 130 | **124** / **133** |
+| `rpc_mesh_classic` overlap | 1 / 2 | 180 / 407 | **1064** / **881** |
+| `rpc_mesh_quorum` serial | 1 / 2 | 95 / 81 | **111** / **95** |
+| `rpc_mesh_quorum` overlap | 1 / 2 | 448 / 339 | **905** / **721** |
+| `event_fanout` 1 sub | 1 / 2 | 3295 / 3053 | **5125** / **4559** |
+| `event_fanout` 3 sub | 1 / 2 | 2007 / 1582 | **2700** / **2652** |
+| `event_fanout_m2m` 4×4 lossy | 1 / 2 | 1496 / 1268 | **2134** / **2121** |
+| `event_fanout_m2m` 4×4 durable | 1 / 2 | 212 / 274 | **326** / **319** |
+| `rpc_m2m` 4 clients × 2 backends | 1 / 2 | 1031 / 895 | — |
+
+Durable m2m is **confirm-bound** (~200–330 pubs/s). Do not mix with
+lossy m2m. Serial RPC is an RTT probe. `rpc_m2m` is the non-critical
+RPC capacity shape.
+
+### AMQPS Docker (`:5671`, raw = serial confirm+ack)
+
+| Workload | Pass | Python | Lean |
+|----------|------|--------|------|
+| Raw 64 B serial | 1 / 2 | 288 / 290 | **309** / **303** |
+| Raw 1 KiB serial | 1 / 2 | 293 / **297** | **321** / 293 |
+| Raw 16 KiB serial | 1 / 2 | 231 / **247** | 236 / 237 |
+| `rpc_classic` serial | 1 / 2 | 139 / 131 | **164** / **138** |
+| `rpc_classic` overlap | 1 / 2 | 436 / 455 | **921** / **983** |
+| `rpc_mesh_classic` serial | 1 / 2 | **111** / 107 | 72 / **135** |
+| `rpc_mesh_classic` overlap | 1 / 2 | 386 / 376 | **448** / **919** |
+| `rpc_mesh_quorum` serial | 1 / 2 | **88** / 84 | 57 / **90** |
+| `rpc_mesh_quorum` overlap | 1 / 2 | 325 / 290 | **336** / **646** |
+| `event_fanout` 1 sub | 1 / 2 | 1477 / 2074 | **4618** / **3752** |
+| `event_fanout` 3 sub | 1 / 2 | 834 / 1159 | **2158** / **2184** |
+| `event_fanout_m2m` 4×4 lossy | 1 / 2 | 866 / 1029 | **1858** / **2095** |
+| `event_fanout_m2m` 4×4 durable | 1 / 2 | 252 / 233 | **259** / **245** |
+| `rpc_m2m` 4×2 | 1 / 2 | 666 / 634 | — |
+
+AMQPS raw is two broker RTTs per message. Event firehose still leads
+on Lean. Durable m2m stays in the confirm band on both languages.
+
+### Lean RPC / mesh slices (`NUROPB_BENCH_IO=1`)
+
+Same Homebrew PLAIN path, same day, after `runRpc` gained the same counters
+plus confirm-wait / reply-wait. Lean vs Lean. Serial wall is **broker RTT**,
+not assemble.
+
+| Slice (`rpc_mesh_classic` serial, mean of two passes) | per msg |
+|-------------------------------------------------------|---------|
+| confirm wait (`awaitExceptAsync` on publisher confirm) | **~3.8 ms** |
+| reply wait (`waitReplyWaiterAsync`) | **~3.6 ms** |
+| `aio.send` | ~0.58 ms |
+| assemble (exclusive) | **~1.7 µs** |
+| `recv?` calls | ~3 / msg (blocks until frames; same wait as reply) |
+
+`rpc_classic` serial is the same shape with a cheaper confirm (~1.1 ms
+confirm, ~2.7 ms reply). Overlap `reply_wait` looks large per request
+because windows overlap; wall-clock overlap still lands ~1.0–1.4k with
+timers on (uninstrumented ~1.6k). Quorum serial pass 1 in this instrumented
+run dropped to 60 msgs/s with ~14 ms confirm wait — RTT / broker stall,
+same class as the uninstrumented 322 mesh-classic pass.
+
+Accept confirm + reply wait (correct AMQP). Do not drop confirms,
+per-delivery ack, or quorum DLX+TTL. Do not spend client IO on
+`rpc_mesh_quorum`. `MeshService.announce` stays unwired Lean drift
+(behavior backlog, not a perf cell).
 
 ```bash
 # Lean vs Python IO remasure (not an SLO).
 # Local Homebrew defaults: PLAIN :5673, AMQPS :5674
 ./scripts/remeasure_lean_python.sh
 ./scripts/remeasure_lean_python.sh --plain --raw
+./scripts/remeasure_lean_python.sh --plain --events --plain-port 5672
+./scripts/remeasure_lean_python.sh --plain --events-m2m --rpc-m2m --plain-port 5672
 ./scripts/remeasure_lean_python.sh --plain --rpc --mesh
 ./scripts/remeasure_lean_python.sh --amqps --mesh
 ./scripts/remeasure_lean_python.sh --plain-port 5672 --amqps-port 5671
 
 uv sync --dev --extra bench
-# full default matrix (needs a broker on 5672 or 5673):
+# fair peer is pika AsyncioConnection (default):
 uv run python -m bench.compare
-# smaller smoke:
 uv run python -m bench.compare --quick
+# different IO model, not the fair compare:
+uv run python -m bench.compare --pika-io blocking --quick
 ```

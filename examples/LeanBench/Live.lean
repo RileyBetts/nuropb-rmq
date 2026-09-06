@@ -6,6 +6,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Lean vs Python IO remasure. Not a product target.
 Raw firehose uses two connections (pub ∥ consume), matching Python.
 RPC topologies: exclusive classic, nr.mesh + classic durable, nr.mesh + quorum.
+Event fanout: one auto-delete fanout exchange, 1 or 3 exclusive subscribers.
+Wall is first measured send → last complete. Declare / bind / consume /
+confirm.select / session start / one warmup round-trip are outside the clock.
 -/
 import Std.Async
 import NuropbRMQ
@@ -48,6 +51,10 @@ def runRawSerial (count size : Nat) (queue : String) : Async Unit := do
   let q ← queueDeclare c 1 queue (exclusive := true) (autoDelete := true)
   let _ ← basicConsume c 1 q
   let body := fill size 0x78
+  basicPublish c 1 body "" q { contentType := some "application/octet-stream" }
+    (wantConfirm := true)
+  let warm ← receive c 120000
+  basicAck c 1 warm.deliveryTag
   let t0 ← ioRun IO.monoNanosNow
   for _ in [0:count] do
     basicPublish c 1 body "" q { contentType := some "application/octet-stream" }
@@ -63,6 +70,7 @@ def runRawSerial (count size : Nat) (queue : String) : Async Unit := do
 /-- Dual-connection firehose: consume+ack on `cons`, publish on `pub`. -/
 def runRawFirehose (count size : Nat) (queue : String) : Async Unit := do
   let cfg ← ioRun envConfig
+  ioRun enableIoStatsFromEnv
   let cons ← dial cfg
   let pub ← dial cfg
   let _ ← openChannel cons 1
@@ -70,17 +78,23 @@ def runRawFirehose (count size : Nat) (queue : String) : Async Unit := do
   let q ← queueDeclare cons 1 queue (exclusive := true) (autoDelete := true)
   let _ ← basicConsume cons 1 q
   let body := fill size 0x78
+  basicPublish pub 1 body "" q { contentType := some "application/octet-stream" }
+    (wantConfirm := false)
+  waitWritesIdle pub.st
+  let warm ← receive cons 120000
+  basicAck cons 1 warm.deliveryTag
   let done ← IO.Promise.new
   background do
     for _ in [0:count] do
       let msg ← receive cons 120000
       basicAck cons 1 msg.deliveryTag
     ioRun (done.resolve ())
-  sleep (Std.Time.Millisecond.Offset.ofNat 20)
+  ioRun resetIoStats
   let t0 ← ioRun IO.monoNanosNow
   for _ in [0:count] do
     basicPublish pub 1 body "" q { contentType := some "application/octet-stream" }
       (wantConfirm := false)
+  waitWritesIdle pub.st
   match ← Async.ofTask done.result? with
   | some _ => pure ()
   | none => throw (IO.userError "firehose consume dropped")
@@ -88,6 +102,8 @@ def runRawFirehose (count size : Nat) (queue : String) : Async Unit := do
   let wall := (t1 - t0).toFloat / 1e9
   let rate := if wall > 0 then count.toFloat / wall else 0
   ioRun (IO.println s!"lean raw_firehose size={size} count={count} msgs_per_sec={rate} wall={wall}")
+  if (← ioRun ioStatsOn) then
+    ioRun (IO.println (← ioRun (formatIoStats count)))
   close pub
   close cons
 
@@ -159,6 +175,7 @@ def setupMeshQuorum (cfg : ConnectionConfig) : Async RpcSetup := do
 
 def runRpc (count size : Nat) (queue : String) (overlap : Bool) (topo : RpcTopo) : Async Unit := do
   let cfg ← ioRun envConfig
+  ioRun enableIoStatsFromEnv
   let setup ←
     match topo with
     | .classic => setupClassic cfg queue
@@ -169,12 +186,13 @@ def runRpc (count size : Nat) (queue : String) (overlap : Bool) (topo : RpcTopo)
     queue := setup.queue
     handler := fun _ _ => pure (.obj [("ok", .bool true)])
   }
-  background (serveN srv count)
-  sleep (Std.Time.Millisecond.Offset.ofNat 50)
+  background (serveN srv (count + 1))
   let sess ← ioRun (mkSession cfg)
   Session.startAsync sess dial
   let cli : RpcClient := { session := sess }
   let params := Json.obj [("b", .str (padStr size))]
+  let _ ← RpcClient.request cli setup.target setup.method params none setup.exchange
+  ioRun resetIoStats
   let t0 ← ioRun IO.monoNanosNow
   if overlap then
     requestWindows cli setup.target setup.method params setup.exchange count
@@ -186,8 +204,142 @@ def runRpc (count size : Nat) (queue : String) (overlap : Bool) (topo : RpcTopo)
   let rate := if wall > 0 then count.toFloat / wall else 0
   let scen := if overlap then s!"{topo.tag}_overlap" else topo.tag
   ioRun (IO.println s!"lean {scen} size={size} count={count} msgs_per_sec={rate} wall={wall}")
+  if (← ioRun ioStatsOn) then
+    ioRun (IO.println (← ioRun (formatIoStats count)))
   Session.close sess
   setup.closeSrv
+
+/-- Fanout notifications: one auto-delete exchange, N exclusive subscribers.
+    Rate is publishes; wall waits until each subscriber has seen every message. -/
+partial def startEventSubs (cfg : ConnectionConfig) (ex : String) (n : Nat)
+    (acc : List EventSubscriber) : Async (List EventSubscriber) := do
+  if n == 0 then return acc.reverse
+  let s ← EventSubscriber.start cfg ex "fanout" "#" dial
+  startEventSubs cfg ex (n - 1) (s :: acc)
+
+partial def spawnEventConsumers (subs : List EventSubscriber) (count : Nat)
+    (acc : List (IO.Promise Unit)) : Async (List (IO.Promise Unit)) := do
+  match subs with
+  | [] => return acc.reverse
+  | s :: rest =>
+    let done ← IO.Promise.new
+    background do
+      for _ in [0:count] do
+        let _ ← EventSubscriber.receive s 120000
+      ioRun (done.resolve ())
+    spawnEventConsumers rest count (done :: acc)
+
+partial def awaitEventDones (dones : List (IO.Promise Unit)) : Async Unit := do
+  match dones with
+  | [] => return
+  | d :: rest =>
+    match ← Async.ofTask d.result? with
+    | some _ => awaitEventDones rest
+    | none => throw (IO.userError "event_fanout consume dropped")
+
+partial def closeEventSubs (subs : List EventSubscriber) : Async Unit := do
+  match subs with
+  | [] => return
+  | s :: rest =>
+    EventSubscriber.close s
+    closeEventSubs rest
+
+/-- One publish + one receive per subscriber. Outside the timed window. -/
+def warmupEventFanout (pub : EventPublisher) (subs : List EventSubscriber) (params : Json) :
+    Async Unit := do
+  let dones ← spawnEventConsumers subs 1 []
+  EventPublisher.publish pub "" "bench.warmup" params
+  waitWritesIdle pub.conn.st
+  awaitEventDones dones
+
+def runEventFanout (count size subs : Nat) : Async Unit := do
+  let cfg ← ioRun envConfig
+  ioRun enableIoStatsFromEnv
+  let id ← ioRun benchId
+  let ex := s!"nr.bench.lean.fanout.{id}"
+  let subscribers ← startEventSubs cfg ex subs []
+  let pub ← EventPublisher.start cfg ex "fanout" dial
+  let params := Json.obj [("b", .str (padStr size))]
+  warmupEventFanout pub subscribers params
+  let dones ← spawnEventConsumers subscribers count []
+  ioRun resetIoStats
+  let t0 ← ioRun IO.monoNanosNow
+  for _ in [0:count] do
+    EventPublisher.publish pub "" "bench.event" params
+  waitWritesIdle pub.conn.st
+  awaitEventDones dones
+  let t1 ← ioRun IO.monoNanosNow
+  let wall := (t1 - t0).toFloat / 1e9
+  let rate := if wall > 0 then count.toFloat / wall else 0
+  ioRun (IO.println
+    s!"lean event_fanout subs={subs} size={size} count={count} msgs_per_sec={rate} wall={wall}")
+  if (← ioRun ioStatsOn) then
+    ioRun (IO.println (← ioRun (formatIoStats count)))
+  EventPublisher.close pub
+  closeEventSubs subscribers
+
+partial def startEventPubs (cfg : ConnectionConfig) (ex : String) (n : Nat)
+    (durable : Bool) (acc : List EventPublisher) : Async (List EventPublisher) := do
+  if n == 0 then return acc.reverse
+  let p ← EventPublisher.start cfg ex "fanout" dial durable durable durable
+  startEventPubs cfg ex (n - 1) durable (p :: acc)
+
+partial def startNamedEventSubs (cfg : ConnectionConfig) (ex : String) (id : String)
+    (n : Nat) (durable : Bool) (acc : List EventSubscriber) : Async (List EventSubscriber) := do
+  if n == 0 then return acc.reverse
+  let q := if durable then s!"nr.bench.lean.ev.{id}.{n}" else ""
+  let s ← EventSubscriber.start cfg ex "fanout" "#" dial q (!durable) (!durable) durable durable
+  startNamedEventSubs cfg ex id (n - 1) durable (s :: acc)
+
+partial def spawnEventPublishers (pubs : List EventPublisher) (count : Nat) (params : Json)
+    (acc : List (IO.Promise Unit)) : Async (List (IO.Promise Unit)) := do
+  match pubs with
+  | [] => return acc.reverse
+  | p :: rest =>
+    let done ← IO.Promise.new
+    background do
+      for _ in [0:count] do
+        EventPublisher.publish p "" "bench.event" params
+      waitWritesIdle p.conn.st
+      ioRun (done.resolve ())
+    spawnEventPublishers rest count params (done :: acc)
+
+partial def closeEventPubs (pubs : List EventPublisher) : Async Unit := do
+  match pubs with
+  | [] => return
+  | p :: rest =>
+    EventPublisher.close p
+    closeEventPubs rest
+
+/-- Many independent publishers × many subscribers. Rate is aggregate publishes. -/
+def runEventFanoutM2M (perPub size pubs subs : Nat) (durable : Bool) : Async Unit := do
+  let cfg ← ioRun envConfig
+  ioRun enableIoStatsFromEnv
+  let id ← ioRun benchId
+  let ex := s!"nr.bench.lean.m2m.{id}"
+  let subscribers ← startNamedEventSubs cfg ex id subs durable []
+  let publishers ← startEventPubs cfg ex pubs durable []
+  let params := Json.obj [("b", .str (padStr size))]
+  match publishers with
+  | [] => throw (IO.userError "event_fanout_m2m needs at least one publisher")
+  | p :: _ => warmupEventFanout p subscribers params
+  let dones ← spawnEventConsumers subscribers (perPub * pubs) []
+  ioRun resetIoStats
+  let t0 ← ioRun IO.monoNanosNow
+  let pdones ← spawnEventPublishers publishers perPub params []
+  awaitEventDones pdones
+  awaitEventDones dones
+  let t1 ← ioRun IO.monoNanosNow
+  let wall := (t1 - t0).toFloat / 1e9
+  let total := perPub * pubs
+  let rate := if wall > 0 then total.toFloat / wall else 0
+  let dflag := if durable then (1 : Nat) else 0
+  ioRun (IO.println
+    s!"lean event_fanout_m2m pubs={pubs} subs={subs} durable={dflag} size={size} count={total} msgs_per_sec={rate} wall={wall}")
+  if (← ioRun ioStatsOn) then
+    ioRun (IO.println (← ioRun (formatIoStats total)))
+  closeEventPubs publishers
+  closeEventSubs subscribers
 
 def parseTopo (mode : String) : Option (RpcTopo × Bool) :=
   if mode == "rpc" || mode == "rpc_classic" then some (.classic, false)
@@ -208,6 +360,15 @@ def main : IO Unit := (do
   | none =>
     if mode == "raw_serial" then
       runRawSerial count size queue
+    else if mode == "event_fanout" || mode == "event_fanout_3" then
+      let subs ←
+        if mode == "event_fanout_3" then pure 3
+        else ioRun (envNat "NUROPB_BENCH_SUBS" 1)
+      runEventFanout count size subs
+    else if mode == "event_fanout_m2m" || mode == "event_fanout_m2m_durable" then
+      let pubs ← ioRun (envNat "NUROPB_BENCH_PUBS" 4)
+      let subs ← ioRun (envNat "NUROPB_BENCH_SUBS" 4)
+      runEventFanoutM2M count size pubs subs (mode == "event_fanout_m2m_durable")
     else
       runRawFirehose count size queue
   : Async Unit).block

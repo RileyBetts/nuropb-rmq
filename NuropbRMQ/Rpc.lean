@@ -47,14 +47,15 @@ def RpcClient.requestAsync (cli : RpcClient) (target method : String) (params : 
   try
     let confirmP ← basicPublishKickAsync c cli.session.channelId body exchange target props
       (mandatory := true) (wantConfirm := true)
-    let replyJob := waitReplyWaiterAsync c.st rid
+    let replyJob := timedAsync addReplyWaitNs (waitReplyWaiterAsync c.st rid)
     let msg ←
       match confirmP with
       | some p => do
-        let (_conf, m) ← Async.concurrently (awaitExceptAsync p) replyJob
+        let (_conf, m) ← Async.concurrently
+          (timedAsync addConfirmWaitNs (awaitExceptAsync p)) replyJob
         pure m
       | none => replyJob
-    basicAckAsync c cli.session.channelId msg.deliveryTag
+    basicAckAsync c cli.session.channelId msg.deliveryTag (urgent := true)
     ioRun (Session.forget cli.session rid)
     if msg.properties.correlationId != some rid then
       throw (IO.userError "INVALID_ENVELOPE")
@@ -189,9 +190,9 @@ def RpcServer.serveOnceAsync (srv : RpcServer) (msg : IncomingMessage) : Async U
       }
       publishAndAckAsync srv.conn srv.channelId out "" rt props msg.deliveryTag
     else
-      basicAckAsync srv.conn srv.channelId msg.deliveryTag
+      basicAckAsync srv.conn srv.channelId msg.deliveryTag (urgent := true)
   else
-    basicAckAsync srv.conn srv.channelId msg.deliveryTag
+    basicAckAsync srv.conn srv.channelId msg.deliveryTag (urgent := true)
 
 def RpcServer.serveOnce (srv : RpcServer) (msg : IncomingMessage) : Async Unit :=
   RpcServer.serveOnceAsync srv msg

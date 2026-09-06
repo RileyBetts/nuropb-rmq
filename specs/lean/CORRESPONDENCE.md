@@ -229,7 +229,7 @@ is frozen; Lean names mirror it and are not a Python API change.
 | `NuropbRMQ.Session.startAsync` | `Session.start` |
 | `NuropbRMQ.RpcClient` / `RpcServer` | `RpcClient` / `RpcServer` |
 | `NuropbRMQ.MeshService` / `ServiceIdentity` | `MeshService` / `ServiceIdentity` |
-| `NuropbRMQ.EventPublisher` / `EventSubscriber` | `EventPublisher` / `EventSubscriber` |
+| `NuropbRMQ.EventPublisher` / `EventSubscriber` | `EventPublisher` / `EventSubscriber` (lossy default; durable exchange / named queue / confirm opt-in; `confirm.select` during `start` when durable / `wantConfirm`) |
 | `NuropbRMQ.MeshRegistryPublisher` / `MeshRegistryViewer` | `MeshRegistryPublisher` / `MeshRegistryViewer` |
 | `NuropbRMQ.DlqTimeoutProcessor` | `DlqTimeoutProcessor` |
 | `NuropbRmq.Protocol.tryStep` / `legalSend` | Python connection/channel SMs |

@@ -39,16 +39,38 @@ version.
   reply-forge 403 + regex 403 + RPC overlap), `lean-amqps`, `lean-mtls`
   (not required for merge except `Lean NuropbRMQSpec + NuropbRMQ`)
 
-## Next (Lean IO)
+## Next (best msgs/s)
 
-- Done this slice: Lean `flushWrites` is a background flusher; `sendRawAsync`
-  awaits `uv_write` only above 64 KiB (`writeHighWater`, asyncio `drain()`);
-  `close` waits until idle. Remasure PLAIN raw 64 B: Lean ~5.7k (was ~3.2k)
-  vs Python ~9.3k. `pumpDrain` and Python confirm∥reply stay as before.
-- Residual: Lean fair firehose still behind Python (~1.6× at 64 B). Do not
-  spend another slice on recv decode or `rpc_mesh_quorum`.
-- Do not spend client IO on `rpc_mesh_quorum`. Quorum is the bound;
-  `durable_classic()` is already the fast mesh profile.
+Goal: the highest measured rate on **either** runtime. Python 1.0
+`api.py` stays frozen. AMQP/mesh behavior stays 100% (confirms, one ack
+per delivery, `basic.return`, blocked publish, quorum+DLX+TTL vs
+`durable_classic()`).
+
+- Done: firehose coalesce (`writeBatch` / `waitWritesIdle`). Docker
+  PLAIN `:5672` raw 64 B Lean **~4.7k** vs Python **~3.1k** (42–43
+  `uv_write`s / 2000). Loopback Python ~9.3k was not re-tested
+  (Homebrew error).
+- Done: Lean is first-class on lossy `event_fanout` (1 and 3 exclusive
+  subscribers). Docker `:5672`: Lean **4406 / 4685** (1 sub) vs Python
+  **2213 / 2771**. That cell is **not** trading at-least-once.
+- This slice: durable fan-out is opt-in (named durable queue per
+  consumer + confirm). RPC/mesh stays off the FIX critical path.
+  Many-to-many event remasure (`P` pubs × `M` subs) is the capacity
+  shape; serial RPC on one `Session` is an RTT probe only. See
+  [events durability](concepts/events-durability.md).
+- Pika exclusive RPC vs nuropb is a **no-confirm ceiling** plus a
+  thinner stub, including on the fair asyncio peer (**140** vs **51**,
+  p50 6.7 vs 15.4 ms). Blocking **162** vs **101** is a different IO
+  model. Do not drop confirms. Product overlap is already Lean-led
+  (~1.0k vs ~0.5–0.6k).
+- A healthy Homebrew remasure is still the check against the ~9.3k
+  loopback ceiling. Further hops are Std.Async
+  ([lean4#13469](https://github.com/leanprover/lean4/issues/13469)), not
+  another `pumpDrain` or event ack rewrite.
+- Product RPC/mesh stays broker-RTT one-at-a-time. Quorum serial ≈ mesh
+  classic serial; `durable_classic()` is the fast mesh profile.
+- Still rejected: POSIX steal-the-socket, silent `multiple` ack, dropping
+  confirms or the DLX.
 
 ## Not claimed
 

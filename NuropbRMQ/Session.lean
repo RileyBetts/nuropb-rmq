@@ -128,7 +128,7 @@ def Session.waitReplyAsync (s : Session) (rid : String) (timeoutMs : Nat := 6000
   try
     let c ← ioRun (s.conn.get : IO AmqpConnection)
     let msg ← waitReplyWaiterAsync c.st rid timeoutMs
-    basicAckAsync c s.channelId msg.deliveryTag
+    basicAckAsync c s.channelId msg.deliveryTag (urgent := true)
     ioRun (Session.forget s rid : IO Unit)
     return msg
   catch e =>

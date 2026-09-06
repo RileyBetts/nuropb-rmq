@@ -56,9 +56,18 @@ remaining complete frame in `buffer` before the next `recv?` (Python
 writes the JSON-RPC reply and the request `basic.ack` in one `aio.send`
 (Python `drain=False` on the reply, drain on the ack). Pumped writes enqueue
 complete bursts on `writePending`; one background flusher concatenates and
-issues a single `aio.send` (no mid-frame splice). Callers await only when
-queued bytes exceed 64 KiB (`writeHighWater`, asyncio `drain()`). `close`
-waits until the write queue is idle.
+issues a single `aio.send` (no mid-frame splice). The flusher parks until
+`writeBatch` (8 KiB) or a waiter needs the write (`confirm` / method /
+drain / idle / `urgent`); `nudgeFlush` wakes it. Methods, confirm
+publishes, server reply+ack, and RPC reply acks are urgent; firehose
+consume acks still batch. Firehose and `event_fanout` benches call
+`waitWritesIdle` after the publish loop so the last partial batch is
+not stuck behind consume.
+Callers await only when queued bytes exceed 64 KiB (`writeHighWater`,
+asyncio `drain()`). `close` waits until the write queue is idle. `NUROPB_BENCH_IO=1` on `lean_bench_live`
+prints encode / enqueue / `aio.send` / `recv?` / assemble / offer / ack /
+confirm-wait / reply-wait slices (firehose and RPC/mesh); off by default in
+the library.
 
 ## TLS (memory BIO on the UV loop)
 

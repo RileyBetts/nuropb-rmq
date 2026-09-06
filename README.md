@@ -246,17 +246,20 @@ await mesh.start()
 
 ## Throughput vs pika
 
-On a 2026-09-01 laptop run (Docker RabbitMQ 3.13.7, no TLS), **raw
-publish/consume and fanout** were about **2×–3×** blocking pika at small and
-medium bodies, and roughly tied at 16 KiB. **JSON-RPC on an exclusive reply
-queue** (the mesh path) is slower than pika’s thinner blocking RPC — plan on
-the order of **100–700 round trips per second per process**, depending on
-parallelism, not thousands. Details:
-[`docs/concepts/performance.md`](docs/concepts/performance.md).
+The fair pika peer is **`AsyncioConnection`** (same event loop), not
+`BlockingConnection`. On a 2026-09-05 Docker PLAIN remasure, raw 64 B
+sat in the same band; at 1 KiB asyncio pika led. Exclusive JSON-RPC is
+still slower than pika’s thinner **no-confirm** stub — plan on
+**hundreds of round trips per second per process**, not thousands.
+Details: [`docs/concepts/performance.md`](docs/concepts/performance.md).
+Event defaults are a lossy live bus; durable fan-out is opt-in:
+[`docs/concepts/events-durability.md`](docs/concepts/events-durability.md).
 
 ```bash
 uv sync --dev --extra bench
 uv run python -m bench.compare --quick
+# different IO model, not the fair compare:
+uv run python -m bench.compare --pika-io blocking --quick
 ```
 
 ## Contributing

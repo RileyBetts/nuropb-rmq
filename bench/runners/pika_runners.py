@@ -1,7 +1,11 @@
 # Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
 # Released under Apache 2.0 license as described in the file LICENSE.
 
-"""pika BlockingConnection runners for throughput comparison."""
+"""pika BlockingConnection runners.
+
+A different IO model than nuropb-rmq. Fair compare uses
+``pika_asyncio_runners`` (``bench.compare`` default ``--pika-io asyncio``).
+"""
 
 from __future__ import annotations
 

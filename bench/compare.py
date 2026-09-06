@@ -3,10 +3,14 @@
 
 """CLI: run throughput matrix comparing nuropb-rmq vs pika.
 
+Default pika peer is ``AsyncioConnection`` (same event-loop model).
+``--pika-io blocking`` is a different IO model, not the fair compare.
+
 Usage:
   pip install -e ".[bench]"
   python -m bench.compare
   NUROPB_BENCH_COUNT=200 python -m bench.compare --quick
+  python -m bench.compare --pika-io blocking --quick
 """
 
 from __future__ import annotations
@@ -91,7 +95,7 @@ async def _run_nuropb_cell(
     raise ValueError(f"unknown nuropb scenario {scenario}")
 
 
-def _run_pika_cell(
+def _run_pika_blocking_cell(
     scenario: str,
     *,
     payload_bytes: int,
@@ -129,6 +133,70 @@ def _run_pika_cell(
     raise ValueError(f"unknown pika scenario {scenario}")
 
 
+async def _run_pika_asyncio_cell(
+    scenario: str,
+    *,
+    payload_bytes: int,
+    concurrency: int,
+    message_count: int,
+    subscribers: int,
+) -> BenchResult:
+    from bench.runners import pika_asyncio_runners as pk
+
+    if scenario == "raw_publish_consume":
+        return await pk.run_raw_publish_consume(
+            payload_bytes=payload_bytes,
+            concurrency=concurrency,
+            message_count=message_count,
+        )
+    if scenario == "rpc_exclusive_reply":
+        return await pk.run_rpc_exclusive(
+            payload_bytes=payload_bytes,
+            concurrency=concurrency,
+            message_count=message_count,
+        )
+    if scenario == "rpc_direct_reply_to":
+        return await pk.run_rpc_direct_reply_to(
+            payload_bytes=payload_bytes,
+            concurrency=concurrency,
+            message_count=message_count,
+        )
+    if scenario == "event_fanout":
+        return await pk.run_event_fanout(
+            payload_bytes=payload_bytes,
+            concurrency=concurrency,
+            message_count=message_count,
+            subscribers=subscribers,
+        )
+    raise ValueError(f"unknown pika scenario {scenario}")
+
+
+async def _run_pika_cell(
+    scenario: str,
+    *,
+    pika_io: str,
+    payload_bytes: int,
+    concurrency: int,
+    message_count: int,
+    subscribers: int,
+) -> BenchResult:
+    if pika_io == "asyncio":
+        return await _run_pika_asyncio_cell(
+            scenario,
+            payload_bytes=payload_bytes,
+            concurrency=concurrency,
+            message_count=message_count,
+            subscribers=subscribers,
+        )
+    return _run_pika_blocking_cell(
+        scenario,
+        payload_bytes=payload_bytes,
+        concurrency=concurrency,
+        message_count=message_count,
+        subscribers=subscribers,
+    )
+
+
 async def run_matrix(
     *,
     message_count: int,
@@ -136,16 +204,19 @@ async def run_matrix(
     concs: list[int],
     fanout_subscribers: list[int],
     scenarios: list[str],
+    pika_io: str,
 ) -> list[BenchResult]:
+    pika_tag = "pika-asyncio" if pika_io == "asyncio" else "pika-blocking"
     results: list[BenchResult] = []
     for size in sizes:
         for conc in concs:
             for scenario in scenarios:
                 if scenario == "rpc_direct_reply_to":
-                    print(f"pika {scenario} size={size} conc={conc} ...", flush=True)
+                    print(f"{pika_tag} {scenario} size={size} conc={conc} ...", flush=True)
                     results.append(
-                        _run_pika_cell(
+                        await _run_pika_cell(
                             scenario,
+                            pika_io=pika_io,
                             payload_bytes=size,
                             concurrency=conc,
                             message_count=message_count,
@@ -169,12 +240,13 @@ async def run_matrix(
                             )
                         )
                         print(
-                            f"pika {scenario} size={size} conc={conc} subs={nsub} ...",
+                            f"{pika_tag} {scenario} size={size} conc={conc} subs={nsub} ...",
                             flush=True,
                         )
                         results.append(
-                            _run_pika_cell(
+                            await _run_pika_cell(
                                 scenario,
+                                pika_io=pika_io,
                                 payload_bytes=size,
                                 concurrency=conc,
                                 message_count=message_count,
@@ -192,10 +264,11 @@ async def run_matrix(
                         subscribers=1,
                     )
                 )
-                print(f"pika {scenario} size={size} conc={conc} ...", flush=True)
+                print(f"{pika_tag} {scenario} size={size} conc={conc} ...", flush=True)
                 results.append(
-                    _run_pika_cell(
+                    await _run_pika_cell(
                         scenario,
+                        pika_io=pika_io,
                         payload_bytes=size,
                         concurrency=conc,
                         message_count=message_count,
@@ -223,6 +296,12 @@ def main(argv: list[str] | None = None) -> int:
         default="raw_publish_consume,rpc_exclusive_reply,rpc_direct_reply_to,event_fanout",
         help="comma-separated scenario names",
     )
+    parser.add_argument(
+        "--pika-io",
+        choices=("asyncio", "blocking"),
+        default="asyncio",
+        help="pika adapter: AsyncioConnection (default, fair vs nuropb) or BlockingConnection",
+    )
     args = parser.parse_args(argv)
     _require_pika()
 
@@ -249,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
             concs=concs,
             fanout_subscribers=fanout_subs,
             scenarios=scenarios,
+            pika_io=args.pika_io,
         )
     )
 
@@ -259,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "broker": {"host": host, "port": port},
         "generated_at": stamp,
+        "pika_io": args.pika_io,
         "results": [r.to_dict() for r in results],
     }
     out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
