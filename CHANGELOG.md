@@ -6,9 +6,51 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Lean POSIX AMQP/mesh client (`import NuropbRMQ`) on the same kernels as the
-  frozen Python 1.0 API. Default `lake build` is libc only (no OpenSSL)
-- Optional AMQPS via `NuropbRMQTls.connect` / `Transport` (`tls-verify-full` PEM)
+- Lean AMQP/mesh client (`import NuropbRMQ`) on the same kernels as the
+  frozen Python 1.0 API. PLAIN sockets are `Std.Async.TCP` (libuv). Default
+  `lake build` does not link OpenSSL
+- Lean async IO (lean-grpc v1.3.0 shape): `AsyncByteTransport`, connection
+  demux waiters, `requestAsync` / `serveAsync`, `lean_async_tcp_smoke`,
+  `smoke_lean_rpc_overlap.sh`. Library `connect` / `request` / `serve` are
+  `Async`; `.block` only at process `main`
+- Lean AMQP IO: `TCP_NODELAY`, one `aio.send` per `encodeBurst`, 64 KiB
+  offset recv buffer, cached session handles, `HashMap` confirm/reply waiters
+- Lean RPC IO: confirm overlapped with reply wait; server reply+ack one write;
+  Python `RpcClient.request` overlaps the same way via `_publish_kick` (not in
+  `api.py`)
+  `encodePublish` for small bodies; single-body inbound slice
+- Lean write-combine: pumped `sendRawAsync` enqueues complete bursts;
+  `flushWrites` concatenates into one `aio.send`. Await `uv_write` only
+  above a 64 KiB watermark (asyncio `drain()`); `close` waits until idle.
+  Flusher parks until `writeBatch` or a confirm / method / idle /
+  `urgent` waiter; firehose consume acks stay batched; benches
+  `waitWritesIdle` after the publish loop
+- Lean remasure slices: `NUROPB_BENCH_IO=1` times encode / enqueue /
+  `aio.send` / `recv?` / assemble / offer / ack / confirm-wait /
+  reply-wait on `lean_bench_live` (firehose, RPC/mesh, and
+  `event_fanout`)
+- Lean vs Python `event_fanout` remasure (1 and 3 exclusive
+  subscribers) on `lean_bench_live` / `bench.remeasure_io` /
+  `./scripts/remeasure_lean_python.sh --events`
+- Event durability opt-in: durable exchange, named durable subscriber
+  queues, publisher confirms / `mandatory` when the profile is durable;
+  Lean `wantConfirm` parity. Defaults stay a lossy live bus. See
+  [`docs/concepts/events-durability.md`](docs/concepts/events-durability.md)
+- Many-to-many remasure: `P` publishers × `M` subscribers (lossy +
+  durable) via `--events-m2m`; optional `rpc_m2m` (independent async
+  clients × competing mesh backends). Serial RPC is an RTT probe, not
+  a capacity claim
+- Remasure wall is first measured send → last complete. Declare, bind,
+  consume, `confirm.select`, session start, and one warmup round-trip
+  stay outside the clock (including Lean durable `event_fanout_m2m`)
+- Full remasure 2026-09-06 (Docker PLAIN `:5672` + AMQPS `:5671`, two
+  passes, all cells including `events_m2m` / `rpc_m2m`) recorded in
+  [`docs/concepts/performance.md`](docs/concepts/performance.md)
+- `bench.compare` default pika peer is `AsyncioConnection` (same
+  event loop as nuropb-rmq). `BlockingConnection` is
+  `--pika-io blocking`, not the fair compare
+- Optional AMQPS via `NuropbRMQTls.connectAsync` (`tls-verify-full` PEM;
+  UV-loop memory BIO / `SSL_ERROR_WANT_*`; no `SSL_set_fd`)
 - Lean ↔ Python interop, Lean AMQPS, Lean IO coverage, and Lean reply-forge 403
   smokes (`scripts/smoke_interop.sh`, `smoke_lean_amqps.sh`,
   `smoke_lean_coverage.sh`, `smoke_lean_reply_acl.sh`,
@@ -19,7 +61,7 @@ All notable changes to this project are documented in this file.
 - Lean SASL `EXTERNAL` when the broker offers it and a client PEM pair or
   PKCS#12 bag is set (`NuropbRMQTls` / OpenSSL FFI only)
 - Lean RS256/ES256 JWT verify on `NuropbRMQTls` / OpenSSL FFI (PyJWT goldens;
-  default `lake build` stays libc / HS256)
+  default `lake build` stays `Std.Async` / HS256, no OpenSSL)
 - Scoped `matchesRegex` (Lean + Python) for documented ACL profiles as regex,
   plus a live narrower-than-prefix regex 403; full broker engine stays residual
 - Optional `RpcServer(dedup_window=N)` / Lean `tryDedup`: process-local
@@ -33,13 +75,33 @@ All notable changes to this project are documented in this file.
   `MeshRegistryPublisher` via `api`, AMQPS wrong-hostname
 - Project roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
+### Fixed
+
+- Lean connection workers (flush / pump / heartbeat) stay children of one
+  dedicated supervisor (`Async.concurrentlyAll`). Nested default
+  `background` died when `connect` returned and dropped `ofPromise`
+  waiters (CI `lean_amqps_hello` / interop consumer)
+
 ### Honesty
 
 - Park republish remains at-least-once *delivery* (optional `dedup_window` is
   in-process handler-once, not clustered / exactly-once AMQP)
-- Default `lake build` does not link OpenSSL (PKCS#12 / mTLS / RS256/ES256 stay
-  on `NuropbRMQTls` only)
-- HMAC hardness and the full RabbitMQ regex engine / HA stay residual
+- Default `lake build` does not link OpenSSL (Lean PKCS#12 / mTLS / RS256/ES256
+  stay on `NuropbRMQTls`). Python 1.0 verifies RS256/ES256 via PyJWT on
+  `AuthConfig` (`[claims]` extra)
+- Lean TLS is UV-loop memory BIO / `SSL_ERROR_WANT_*`. Python AMQPS is
+  stdlib `ssl` on the asyncio loop. Laptop remasure is not an AMQPS SLO
+- HMAC / SHA-256 hardness and the full RabbitMQ regex engine / HA stay residual
+- EventPublisher / EventSubscriber **defaults** are a lossy live bus
+  (no confirm, exclusive auto-delete queues). Durable fan-out is opt-in.
+  Mesh/RPC work-queue durability is competing consumers, not broadcast
+- Lean raw firehose is in the same band as Python on a laptop PLAIN broker,
+  not a 17k msgs/s SLO (that figure was POSIX steal-the-socket)
+- Python `AmqpConnection.close` does not fail raw confirm / `receive` waiters
+  (`Session.close` still `discard_all`s RPC futures). `confirm=True` with
+  `drain=False` is unsupported (RPC uses `drain=False` + `confirm=False`)
+- Lean `MeshService.announce` is not wired in `start`; Python `announce=True`
+  publishes. Lean `dial` hook and `requestAll` are Lean-only IO
 
 ## 1.0.0 — 2026-09-01
 

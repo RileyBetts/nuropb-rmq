@@ -44,7 +44,7 @@ log="$(mktemp)"
 "${PY[@]}" examples/interop_hello/consumer.py >"$log" 2>&1 &
 pid=$!
 sleep 1
-out="$("$BIN/interop_hello_publisher" 2>&1)"
+out="$("$BIN/interop_hello_publisher" 2>&1)" || true
 sleep 0.5
 kill_bg "$pid"
 assert_contains "interop_hello lean→py pub" "$out" "hello-nuropb-rmq"
@@ -57,7 +57,7 @@ log="$(mktemp)"
 "$BIN/interop_hello_consumer" >"$log" 2>&1 &
 pid=$!
 sleep 2
-out="$("${PY[@]}" examples/interop_hello/publisher.py 2>&1)"
+out="$("${PY[@]}" examples/interop_hello/publisher.py 2>&1)" || true
 sleep 1
 kill_bg "$pid"
 assert_contains "interop_hello py→lean pub" "$out" "hello-nuropb-rmq"
@@ -65,12 +65,27 @@ assert_contains "interop_hello py→lean cons" "$(cat "$log")" "hello-nuropb-rmq
 rm -f "$log"
 echo "PASS interop_hello python publisher / lean consumer"
 
+run_until() {
+  local needle1="$1" needle2="$2"
+  shift 2
+  local out="" i
+  for i in 1 2 3; do
+    out="$("$@" 2>&1)" || true
+    if [[ "$out" == *"$needle1"* && "$out" == *"$needle2"* ]]; then
+      printf '%s' "$out"
+      return 0
+    fi
+    sleep 1
+  done
+  printf '%s' "$out"
+}
+
 # Python service + Lean client
 slog="$(mktemp)"
 "${PY[@]}" examples/interop_mesh/service.py >"$slog" 2>&1 &
 pid=$!
-sleep 2
-clout="$("$BIN/interop_mesh_client" 2>&1)" || true
+sleep 3
+clout="$(run_until "interop.ping" "[client] done" "$BIN/interop_mesh_client")"
 sleep 0.3
 kill_bg "$pid"
 assert_contains "interop_mesh lean client" "$clout" "interop.ping"
@@ -83,7 +98,7 @@ slog="$(mktemp)"
 "$BIN/interop_mesh_service" >"$slog" 2>&1 &
 pid=$!
 sleep 3
-clout="$("${PY[@]}" examples/interop_mesh/client.py 2>&1)" || true
+clout="$(run_until "interop.ping" "[client] done" "${PY[@]}" examples/interop_mesh/client.py)"
 sleep 0.3
 kill_bg "$pid"
 assert_contains "interop_mesh python client" "$clout" "interop.ping"

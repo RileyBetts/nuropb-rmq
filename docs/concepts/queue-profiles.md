@@ -26,6 +26,11 @@ server = RpcServer(cfg, queue="orders", handler=handler, queue_profile=durable_c
 - TTL and dead-letter exchange must be set together when either is used.
 - **Session reply queues** stay exclusive / auto-delete / ephemeral — they do
   not use the work-queue profile.
+- **Events default to `transient-fast-path`** (live fan-out while connected).
+  That is not at-least-once. Durable fan-out is opt-in: durable exchange +
+  persistent confirm publish + **named durable queue per consumer**. See
+  [events durability](events-durability.md). Mesh/RPC work-queue durability
+  is competing consumers, not broadcast.
 - **Publisher confirms:** publishing with a durable `QueueProfile` (and Session/RPC
   requests) enables RabbitMQ `confirm.select` and waits for broker ack/nack before
   `basic_publish` returns. Persistent bits alone are not a producer-side durability

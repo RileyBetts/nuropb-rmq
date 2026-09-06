@@ -54,18 +54,28 @@ async def run_raw_publish_consume(
             received += 1
         done.set()
 
-    consumer_task = asyncio.create_task(consume_loop())
-
-    publishers: list[AmqpConnection] = []
+    publishers: list[tuple[AmqpConnection, int]] = []
     per = message_count // concurrency
     rem = message_count % concurrency
-
-    async def publish_worker(n: int) -> None:
+    for _ in range(concurrency):
         conn = AmqpConnection(cfg)
-        publishers.append(conn)
         await conn.connect()
         ch = await conn.open_channel(1)
-        loop = asyncio.get_running_loop()
+        publishers.append((conn, ch))
+
+    loop = asyncio.get_running_loop()
+    await publishers[0][0].basic_publish(
+        publishers[0][1],
+        body,
+        routing_key=queue,
+        properties={"content_type": "application/octet-stream"},
+    )
+    warm = await consumer.receive(timeout=None)
+    await consumer.basic_ack(ch_c, warm.delivery_tag)
+
+    consumer_task = asyncio.create_task(consume_loop())
+
+    async def publish_worker(conn: AmqpConnection, ch: int, n: int) -> None:
         for _ in range(n):
             t0_us = int(loop.time() * 1_000_000)
             await conn.basic_publish(
@@ -80,15 +90,17 @@ async def run_raw_publish_consume(
 
     with Stopwatch() as sw:
         tasks = [
-            asyncio.create_task(publish_worker(per + (1 if i < rem else 0)))
+            asyncio.create_task(
+                publish_worker(publishers[i][0], publishers[i][1], per + (1 if i < rem else 0))
+            )
             for i in range(concurrency)
         ]
         await asyncio.gather(*tasks)
         await asyncio.wait_for(done.wait(), timeout=max(30.0, message_count * 0.01))
     await consumer_task
 
-    for p in publishers:
-        await p.close()
+    for conn, _ch in publishers:
+        await conn.close()
     await consumer.close()
 
     p50, p99 = summarize_latencies_ms(latencies)

@@ -6,8 +6,10 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import NuropbRMQ.Socket
 
 /-!
-Byte pipe for AMQP. PLAIN uses POSIX sockets. AMQPS supplies a TLS pipe from
-`NuropbRMQTls` without linking OpenSSL into the default client.
+Synchronous byte pipe (`IO`). PLAIN and AMQPS use `AsyncByteTransport` on the
+UV loop. POSIX `posixTransport` remains for `randomBytes` companions. AMQPS
+is `NuropbRMQTls` (memory BIO) and does not link OpenSSL into the default
+client.
 -/
 
 namespace NuropbRMQ

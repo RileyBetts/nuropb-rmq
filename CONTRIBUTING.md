@@ -63,7 +63,8 @@ uv sync --dev --extra claims && uv run pytest -q tests/patterns/test_context.py 
 uv run pytest -q -m integration
 # from repository root (nested specs/lean is not the Lake package)
 lake build NuropbRMQSpec   # proofs, no sockets
-lake build NuropbRMQ       # POSIX client
+lake build NuropbRMQ       # Std.Async.TCP client (libuv; no OpenSSL)
+lake exe lean_async_tcp_smoke
 lake exe oracle .          # golden vectors (specs/vectors/)
 ```
 

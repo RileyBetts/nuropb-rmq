@@ -3,6 +3,7 @@ Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 
+import Std.Async
 import NuropbRmq.Pattern.Mesh
 import NuropbRmq.Pattern.Errors
 import NuropbRMQ.Connection
@@ -10,6 +11,7 @@ import NuropbRMQ.Socket
 
 namespace NuropbRMQ
 
+open Std.Async
 open NuropbRmq.Pattern.Mesh
 open NuropbRmq.Pattern.Errors
 
@@ -56,8 +58,9 @@ def MeshService.assertBindAllowed (m : MeshService) (rk : String) : IO String :=
     return rk
   | .bindRefused => throw (IO.userError "BIND_REFUSED")
 
-def MeshService.start (m : MeshService) : IO String := do
-  let c ← connect m.config
+def MeshService.start (m : MeshService)
+    (dial : ConnectionConfig → Async AmqpConnection := defaultDial) : Async String := do
+  let c ← dial m.config
   let _ ← openChannel c m.channelId
   exchangeDeclare c m.channelId m.exchange "direct" (durable := true)
   let q ← queueDeclareProfile c m.channelId m.queueName (durable := true)
@@ -65,21 +68,22 @@ def MeshService.start (m : MeshService) : IO String := do
     (queueType := "quorum") (dlrk := some "timeout") (deliveryLimit := some 10)
   for meth in m.methods do
     let key := m.identity.routingKey meth
-    let _ ← MeshService.assertBindAllowed m key
+    let _ ← ioRun (MeshService.assertBindAllowed m key)
     queueBind c m.channelId q m.exchange key
-  m.conn.set (some c)
-  m.queue.set (some q)
+  ioRun (m.conn.set (some c))
+  ioRun (m.queue.set (some q))
   return q
 
-def MeshService.close (m : MeshService) : IO Unit := do
-  if let some c := (← m.conn.get) then
+def MeshService.close (m : MeshService) : Async Unit := do
+  if let some c := (← ioRun (m.conn.get : IO (Option AmqpConnection))) then
     try NuropbRMQ.close c catch _ => pure ()
-  m.conn.set none
-  m.queue.set none
+  ioRun (m.conn.set none)
+  ioRun (m.queue.set none)
 
-def MeshService.rebind (m : MeshService) : IO String := do
+def MeshService.rebind (m : MeshService)
+    (dial : ConnectionConfig → Async AmqpConnection := defaultDial) : Async String := do
   try MeshService.close m catch _ => pure ()
-  MeshService.start m
+  MeshService.start m dial
 
 def MeshService.connection (m : MeshService) : IO AmqpConnection := do
   match ← m.conn.get with

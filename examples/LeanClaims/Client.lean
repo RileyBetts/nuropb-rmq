@@ -3,17 +3,19 @@ Copyright © 2026, Riley Betts Ltd (rileybetts.ai)
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 
+import Std.Async
 import Common
 import NuropbRMQ
 import NuropbRmq.Pattern.Envelope
 import NuropbRmq.Pattern.Jwt
 
+open Std.Async
 open NuropbRmq.Pattern.Envelope
 open NuropbRMQ
 
-def main : IO Unit := do
-  let cfg ← Examples.Common.cfg
-  let sess ← mkSession cfg
+def main : IO Unit := Examples.Common.runAsync do
+  let cfg ← liftM Examples.Common.cfg
+  let sess ← liftM (mkSession cfg)
   Session.start sess
   let cli : RpcClient := { session := sess }
   let mut denied := false
@@ -28,7 +30,7 @@ def main : IO Unit := do
       denied := last.contains "UNAUTHORIZED" || last.contains "-33100"
         || last.contains "unauthorized"
     if denied then break
-    IO.sleep 400
+    sleep (Std.Time.Millisecond.Offset.ofNat 400)
   unless denied do
     throw (IO.userError s!"expected UNAUTHORIZED without claims, last={last}")
   let ping ← RpcClient.request cli "orders.ping" "orders.ping" (.obj [])
@@ -46,5 +48,5 @@ def main : IO Unit := do
       || authLast.contains "unauthorized"
   unless authDenied do
     throw (IO.userError s!"expected UNAUTHORIZED from authorize hook, last={authLast}")
-  IO.println s!"claims: ok unauthorized then {encodeJson ping} then authorize-deny"
+  liftM (IO.println s!"claims: ok unauthorized then {encodeJson ping} then authorize-deny")
   Session.close sess

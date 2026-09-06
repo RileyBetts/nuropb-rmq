@@ -20,7 +20,7 @@ target socket.o pkg : FilePath := do
   let weakArgs := #["-I", (← getLeanIncludeDir).toString]
   buildO oFile srcJob weakArgs #["-fPIC"]
 
-/-- PLAIN AMQP client (POSIX sockets). Default target; no OpenSSL. -/
+/-- PLAIN AMQP client (`Std.Async.TCP` + optional POSIX `randomBytes`). No OpenSSL. -/
 @[default_target]
 lean_lib «NuropbRMQ» where
   moreLinkObjs := #[socket.o]
@@ -100,6 +100,16 @@ lean_exe lean_dedup_hello where
   srcDir := "examples"
   root := `LeanDedup.Hello
 
+/-- Std.Async.TCP loopback (no broker). -/
+lean_exe lean_async_tcp_smoke where
+  srcDir := "examples"
+  root := `LeanAsyncTcp.Hello
+
+/-- Eight in-flight Lean RPCs on one session. Needs a broker. -/
+lean_exe lean_rpc_overlap where
+  srcDir := "examples"
+  root := `LeanRpcOverlap.Hello
+
 lean_exe interop_hello_publisher where
   srcDir := "examples"
   root := `InteropHello.Publisher
@@ -137,6 +147,18 @@ lean_exe lean_amqps_hello where
 lean_exe lean_jwt_asymmetric where
   srcDir := "examples"
   root := `LeanJwtAsym.Hello
+  moreLinkArgs := #[
+    "-L/opt/homebrew/opt/openssl@3/lib",
+    "-L/opt/homebrew/opt/openssl/lib",
+    "-L/usr/local/opt/openssl@3/lib",
+    "-L/usr/local/opt/openssl/lib",
+    "-lssl", "-lcrypto"
+  ]
+
+/-- Lean vs Python IO remasure. Not a default target. -/
+lean_exe lean_bench_live where
+  srcDir := "examples"
+  root := `LeanBench.Live
   moreLinkArgs := #[
     "-L/opt/homebrew/opt/openssl@3/lib",
     "-L/opt/homebrew/opt/openssl/lib",

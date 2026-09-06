@@ -142,6 +142,22 @@ def test_bad_signature() -> None:
     assert ei.value.code == UNAUTHORIZED
 
 
+def test_authorize_func_exception_is_unauthorized() -> None:
+    def boom(claims: object, method: str, params: object) -> bool:
+        raise RuntimeError("authorize exploded")
+
+    auth = AuthConfig(jwt_secret=SECRET, authorize_func=boom)
+    tok = _token(jti="abc", method="orders.ping")
+    with pytest.raises(RpcError) as ei:
+        auth.verify_request(
+            method="orders.ping",
+            params={},
+            correlation_id="abc",
+            properties={"headers": {"nr.claims": tok, "nr.claims_typ": "JWT"}},
+        )
+    assert ei.value.code == UNAUTHORIZED
+
+
 def test_authorize_func_denied() -> None:
     auth = AuthConfig(
         jwt_secret=SECRET,

@@ -120,10 +120,12 @@ jobs:
           lint: false
       - name: Proofs (no IO)
         run: lake build NuropbRMQSpec
-      - name: Client (POSIX)
+      - name: Client (Std.Async)
         run: lake build NuropbRMQ
       - name: Golden oracle
         run: lake exe oracle .
+      - name: Std.Async TCP smoke
+        run: lake exe lean_async_tcp_smoke
 
   lean-amqps:
     name: Lean AMQPS tls-verify-full
@@ -245,3 +247,8 @@ jobs:
           NUROPB_RMQ_PORT: "5672"
           NUROPB_RMQ_MGMT_PORT: "15672"
         run: ./scripts/smoke_lean_reply_acl_regex.sh
+      - name: Lean RPC overlap
+        env:
+          NUROPB_RMQ_HOST: 127.0.0.1
+          NUROPB_RMQ_PORT: "5672"
+        run: ./scripts/smoke_lean_rpc_overlap.sh

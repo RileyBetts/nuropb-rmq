@@ -34,6 +34,7 @@ async def run_event_fanout(
     latencies: list[float] = []
     # Each message should be received by every subscriber
     target = message_count * subscribers
+    needed = subscribers
     counter = 0
     lock = asyncio.Lock()
     done = asyncio.Event()
@@ -45,7 +46,7 @@ async def run_event_fanout(
         _ = method, params, headers
         async with lock:
             counter += 1
-            if counter >= target:
+            if counter >= needed:
                 done.set()
 
     subs = [
@@ -66,6 +67,11 @@ async def run_event_fanout(
             await pub.publish("", "bench.event", {"b": payload})
 
     try:
+        await pub.publish("", "bench.warmup", {"b": payload})
+        await asyncio.wait_for(done.wait(), timeout=30.0)
+        counter = 0
+        done.clear()
+        needed = target
         with Stopwatch() as sw:
             await asyncio.gather(
                 *[

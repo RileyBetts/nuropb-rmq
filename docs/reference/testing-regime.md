@@ -17,12 +17,14 @@ to merge.
 | SpeC++ **unsat** (negatives) | The named attack/contradiction is impossible in the model | same runner; UNKNOWN fails |
 | Lean 4 proofs | Theorems over the same sorts (executable JWT/ACL/SHA-256, not hardness) | `lake build NuropbRMQSpec` (repo root) |
 | Lean oracle | Golden frames / SM trace / ACL / JWT vs spec kernels | `lake exe oracle .` |
-| Lean client | POSIX AMQP + mesh (`import NuropbRMQ`) | `lake build NuropbRMQ` |
+| Lean client | `Std.Async.TCP` AMQP + mesh (`import NuropbRMQ`) | `lake build NuropbRMQ` |
+| Lean async TCP | libuv loopback + waiter completion (no broker) | `lake exe lean_async_tcp_smoke` |
+| Lean RPC overlap | eight in-flight stub RPCs on one session | `./scripts/smoke_lean_rpc_overlap.sh` |
 | Unit + PBT | Python state machines, codec bounds, claims, ACL prefixes | `pytest -m "not integration and not benchmark and not fuzz"` |
 | Frame fuzz | Malformed frames/tables never hang or ignore `frame_max` | `HYPOTHESIS_PROFILE=ci pytest -m fuzz` |
 | Integration | Real RabbitMQ AMQP 0-9-1 behaviour | `pytest -m integration` |
 | AMQPS | `tls-verify-full` PLAIN over TLS | `tests/integration/test_amqps_smoke.py` |
-| Lean AMQPS | Lean `NuropbRMQTls.connect` (OpenSSL; not default `lake build`) | `./scripts/smoke_lean_amqps.sh` |
+| Lean AMQPS | Lean `NuropbRMQTls.connectAsync` (OpenSSL memory BIO on UV; not default `lake build`) | `./scripts/smoke_lean_amqps.sh` |
 | mTLS | Client cert + SASL `EXTERNAL` | `tests/integration/test_amqps_mtls_smoke.py`; `./scripts/smoke_lean_mtls.sh` |
 | Example smoke | Vanilla, mesh, LangChain, LangGraph against a broker | `./scripts/smoke_examples.sh` |
 | Lean↔Python interop | Shared `nr.interop.*` hello + mesh both directions | `./scripts/smoke_interop.sh` |
@@ -50,7 +52,7 @@ live broker checks, not cryptographic hardness.
 | Reconnect | Fail-fast vs park mix-up; epoch not monotonic | `phase2_reconnect_*`, `park_reconnect_*` | session PBTs + live park/fail-fast/mesh rebind |
 | Park dedup | Second delivery reruns handler when window on | `dedup.smt2` / `tryDedup_*` | `test_rpc_dedup.py`; live park `calls==1` with `dedup_window` |
 | Mesh bind | Bind outside `<service>.*` | `mesh_claims_negatives.smt2` | `test_mesh.py`; broker still required in prod |
-| JWT / claims | Missing, bad sig, expired, `jti`≠corr, method mismatch, `authorizeOk` false | same Pattern negatives + Lean `tryAuth_*` | `test_context.py`, golden `test_jwt_golden.py` (HS256 + RS256/ES256), live mesh claims + authorize deny; Lean RS/ES via `smoke_lean_jwt_asymmetric.sh` |
+| JWT / claims | Missing, bad sig, expired, `jti`≠corr, method mismatch, `authorizeOk` false | same Pattern negatives + Lean `tryAuth_*` | `test_context.py` (including `authorize_func` deny / exception), golden `test_jwt_golden.py` (HS256 + RS256/ES256 via Python `AuthConfig`); live mesh claims happy/missing path; Lean RS/ES via `smoke_lean_jwt_asymmetric.sh` |
 | Reply forge | Client publish to another `nr.reply.*` via default exchange | `acl_negatives.smt2`; Lean `forgeDenied` + regex agree | `test_acl.py`; live `channel.close` **403** on `amq.default` (prefix + narrower regex; Python + Lean smokes) |
 | Error oracle | Distinct fields for timeout vs other mesh errors | (shape only; not SpeC++) | `test_anti_enumeration.py` |
 | TLS | Skip verify; wrong hostname | outside Lean | AMQPS `VERIFY_FULL`; `test_amqps_wrong_hostname_rejected`; mTLS + `EXTERNAL` (`lean-mtls`) |
@@ -64,6 +66,8 @@ live broker checks, not cryptographic hardness.
   `dedup_window` is handler-once only)
 - Timing indistinguishability of errors
 - Throughput (`-m benchmark` is optional, not CI)
+- Formal proofs of the libuv / `Std.Async` scheduler
+- Formal proofs of the OpenSSL BIO / `SSL_ERROR_WANT_*` state machine
 
 ## Local exhaustive run
 
@@ -79,6 +83,7 @@ uv run python specs/specpp/check_sat.py
 lake build NuropbRMQSpec
 lake build NuropbRMQ
 lake exe oracle .
+lake exe lean_async_tcp_smoke
 uv run pytest -q -m "not integration and not benchmark and not fuzz" \
   --cov=nuropb_rmq --cov-fail-under=50
 HYPOTHESIS_PROFILE=ci uv run pytest -q -m fuzz
@@ -92,6 +97,7 @@ NUROPB_RMQ_TLS=1 NUROPB_RMQ_PORT=5671 NUROPB_RMQ_CA_FILE=dev/amqps/ca.pem \
 ./scripts/smoke_examples.sh
 ./scripts/smoke_interop.sh
 ./scripts/smoke_lean_coverage.sh
+./scripts/smoke_lean_rpc_overlap.sh
 ./scripts/smoke_lean_reply_acl.sh
 ./scripts/smoke_lean_amqps.sh
 ./scripts/smoke_lean_mtls.sh

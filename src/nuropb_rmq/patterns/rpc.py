@@ -115,8 +115,43 @@ class RpcClient:
         }
         if claims_token is not None:
             props = attach_claims_headers(props, claims_token)
+        def _map_publish_err(exc: BaseException) -> RpcError:
+            self.session.correlation.fail(rid, exc)
+            self.session.forget_publish(rid)
+            if isinstance(exc, PublishReturned):
+                return RpcError(
+                    PUBLISH_RETURNED,
+                    str(exc),
+                    make_error_data(
+                        code=PUBLISH_RETURNED,
+                        retryable=True,
+                        correlation_id=rid,
+                        method=method,
+                    ),
+                    id=rid,
+                )
+            if isinstance(exc, PublishNack):
+                return RpcError(
+                    PUBLISH_NACK,
+                    str(exc),
+                    make_error_data(
+                        code=PUBLISH_NACK, retryable=True, correlation_id=rid, method=method
+                    ),
+                    id=rid,
+                )
+            from nuropb_rmq.patterns.errors import CONNECTION_BLOCKED
+
+            return RpcError(
+                CONNECTION_BLOCKED,
+                str(exc),
+                make_error_data(
+                    code=CONNECTION_BLOCKED, retryable=True, correlation_id=rid, method=method
+                ),
+                id=rid,
+            )
+
         try:
-            await self.session.conn.basic_publish(
+            tag, confirm_fut = await self.session.conn._publish_kick(
                 self.session.channel_id,
                 body,
                 exchange=exchange,
@@ -137,41 +172,28 @@ class RpcClient:
                 ),
             )
         except (PublishNack, PublishReturned, ConnectionBlockedError) as exc:
-            self.session.correlation.fail(rid, exc)
-            self.session.forget_publish(rid)
-            if isinstance(exc, PublishReturned):
-                raise RpcError(
-                    PUBLISH_RETURNED,
-                    str(exc),
-                    make_error_data(
-                        code=PUBLISH_RETURNED,
-                        retryable=True,
-                        correlation_id=rid,
-                        method=method,
-                    ),
-                    id=rid,
-                ) from exc
-            if isinstance(exc, PublishNack):
-                raise RpcError(
-                    PUBLISH_NACK,
-                    str(exc),
-                    make_error_data(
-                        code=PUBLISH_NACK, retryable=True, correlation_id=rid, method=method
-                    ),
-                    id=rid,
-                ) from exc
-            from nuropb_rmq.patterns.errors import CONNECTION_BLOCKED
+            raise _map_publish_err(exc) from exc
 
-            raise RpcError(
-                CONNECTION_BLOCKED,
-                str(exc),
-                make_error_data(
-                    code=CONNECTION_BLOCKED, retryable=True, correlation_id=rid, method=method
-                ),
-                id=rid,
-            ) from exc
+        async def _await_confirm() -> None:
+            if confirm_fut is None:
+                return
+            await confirm_fut
+            self.session.conn._raise_if_returned(self.session.channel_id, tag)
+
+        confirm_task = asyncio.create_task(_await_confirm())
+        reply_task = asyncio.create_task(self.session.wait_reply(rid, fut))
         try:
-            msg: IncomingMessage = await self.session.wait_reply(rid, fut)
+            try:
+                await confirm_task
+            except (PublishNack, PublishReturned, ConnectionBlockedError) as exc:
+                if not reply_task.done():
+                    reply_task.cancel()
+                    try:
+                        await reply_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                raise _map_publish_err(exc) from exc
+            msg: IncomingMessage = await reply_task
         except TimeoutError as exc:
             self.session.forget_publish(rid)
             raise RpcError(

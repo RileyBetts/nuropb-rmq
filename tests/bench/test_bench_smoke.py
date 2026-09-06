@@ -90,6 +90,20 @@ async def test_bench_smoke_nuropb_rpc_and_fanout() -> None:
 
 
 @pytest.mark.benchmark
+@pytest.mark.asyncio
+async def test_bench_smoke_pika_asyncio_raw() -> None:
+    if not _broker_available():
+        pytest.skip("RabbitMQ not available")
+    pytest.importorskip("pika")
+    from bench.runners.pika_asyncio_runners import run_raw_publish_consume
+
+    result = await run_raw_publish_consume(payload_bytes=64, concurrency=1, message_count=50)
+    assert result.message_count == 50
+    assert result.msgs_per_sec > 0
+    assert "AsyncioConnection" in result.notes
+
+
+@pytest.mark.benchmark
 def test_bench_smoke_pika_direct_and_fanout() -> None:
     if not _broker_available():
         pytest.skip("RabbitMQ not available")

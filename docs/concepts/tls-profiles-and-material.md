@@ -8,7 +8,9 @@ named profile and certificate material).
 | Profile | Meaning |
 |---------|---------|
 | `tls-verify-full` | **Default.** Verify CA chain + hostname (via `server_hostname` or `host`). |
-| `tls-verify-custom-san` | Verify chain; hostname must match one of `custom_sans`. |
+| `tls-verify-custom-san` | Verify chain (stdlib hostname check). Configured
+  `server_hostname` / `host` must be in `custom_sans` **before** connect — not
+  a custom cert-SAN inspector. |
 | `tls-insecure-dev-only` | No verification — local experiments only, never production. |
 
 Named profiles avoid a silent `verify=False` footgun.

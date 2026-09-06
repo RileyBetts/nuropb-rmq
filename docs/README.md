@@ -17,8 +17,9 @@ correspondence for contributors is in [`specs/lean/CORRESPONDENCE.md`](../specs/
 - [Connection config](concepts/connection-config.md) — `ConnectionConfig` mental model
 - [TLS profiles and material](concepts/tls-profiles-and-material.md) — AMQPS trust and certs
 - [Queue profiles](concepts/queue-profiles.md) — durable defaults and publish rules
+- [Events durability](concepts/events-durability.md) — live bus vs durable fan-out; FIX ingest
 - [Reconnect](concepts/reconnect.md) — park-and-retry default; fail-fast opt-in
-- [Performance](concepts/performance.md) — bench vs pika; raw vs RPC how to read
+- [Performance](concepts/performance.md) — bench vs pika; events vs serial RPC
 - [API stability](reference/api-stability.md) — 1.0 freeze surface
 - [Service mesh](concepts/service-mesh.md) — what “mesh” means in this library
 - [JWT claims](concepts/jwt-claims.md) — application auth on RPC headers
@@ -35,6 +36,7 @@ correspondence for contributors is in [`specs/lean/CORRESPONDENCE.md`](../specs/
 - [ConnectionConfig fields](reference/connection-config.md)
 - [Environment variables](reference/env-vars.md) — `NUROPB_RMQ_*` in examples/tests
 - [Testing regime](reference/testing-regime.md) — proof and test layers, attack surfaces
+- [Lean async IO](reference/lean-async-io.md) — `Std.Async.TCP`, waiters, UV-loop TLS
 - [Roadmap](ROADMAP.md) — done on `development`, next Lean IO, residuals
 
 ## Examples
