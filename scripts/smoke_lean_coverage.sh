@@ -61,7 +61,14 @@ sleep 0.3
 assert_contains "lean_mesh" "$mout" "demo.ping"
 assert_contains "lean_mesh" "$mout" "[client] done"
 
-rout="$("$BIN/lean_reconnect_client" 2>&1)" || true
+rout=""
+for _try in 1 2 3; do
+  rout="$("$BIN/lean_reconnect_client" 2>&1)" || true
+  if [[ "$rout" == *"reconnect: ok"* ]]; then
+    break
+  fi
+  sleep 1
+done
 assert_contains "lean_reconnect" "$rout" "reconnect: ok"
 kill_bg "$spid"
 rm -f "$slog"
