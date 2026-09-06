@@ -604,14 +604,22 @@ partial def heartbeatLoop (st : IO.Ref ConnState) : Async Unit := do
     pure ()
   heartbeatLoop st
 
+partial def waitUntilClosed (st : IO.Ref ConnState) : Async Unit := do
+  if (← getSt st).closed then return
+  sleep (Std.Time.Millisecond.Offset.ofNat 50)
+  waitUntilClosed st
+
 def startPumpAsync (st : IO.Ref ConnState) : Async Unit := do
   let now ← ioRun IO.monoMsNow
   modSt st fun x => { x with pumped := true, lastPeerMs := now, writeFlushing := true }
-  -- Stay on the default async scheduler. `dedicated` is an OS thread; the
-  -- same `SSL*` / UV handle must not be entered from two threads.
-  background (try flushWrites st catch _ => pure ())
-  background (pumpLoop st)
-  background (heartbeatLoop st)
+  -- One dedicated worker owns flush + pump + heartbeat for the connection
+  -- lifetime. Default `background` is cancelled when `connect` returns, which
+  -- drops `ofPromise` waiters (CI interop consumer).
+  background (prio := .dedicated) do
+    background (try flushWrites st catch _ => pure ())
+    background (pumpLoop st)
+    background (heartbeatLoop st)
+    waitUntilClosed st
 
 def expectMethodWaitAsync (st : IO.Ref ConnState) (ch classId methodId : Nat) : Async Method := do
   let s ← getSt st
